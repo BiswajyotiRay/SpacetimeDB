@@ -1,4 +1,4 @@
-use crate::errors::ErrorVm;
+use crate::errors::{ErrorType, ErrorVm};
 use spacetimedb_lib::relation::{FieldExpr, Header, RelValue, RelValueRef, RowCount};
 use spacetimedb_sats::product_value::ProductValue;
 use std::collections::HashMap;
@@ -75,7 +75,7 @@ pub trait RelOps {
     /// The left iterator can be arbitrarily long.
     ///
     /// It is therefore asymmetric (you can't flip the iterators to get a right_outer join).
-    ///    
+    ///
     /// Note:
     ///
     /// It is the equivalent of a `INNER JOIN` clause on SQL.

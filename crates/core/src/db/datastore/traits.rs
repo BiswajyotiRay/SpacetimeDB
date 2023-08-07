@@ -5,7 +5,10 @@ use spacetimedb_lib::auth::{StAccess, StTableType};
 use spacetimedb_lib::relation::{DbTable, FieldName, FieldOnly, Header, TableField};
 use spacetimedb_lib::{ColumnIndexAttribute, DataKey, Hash};
 use spacetimedb_sats::product_value::InvalidFieldError;
-use spacetimedb_sats::{AlgebraicType, AlgebraicValue, ProductType, ProductTypeElement, ProductValue};
+use spacetimedb_sats::slim_slice::SlimSliceBoxCollected;
+use spacetimedb_sats::{
+    string, AlgebraicType, AlgebraicValue, ProductType, ProductTypeElement, ProductValue, SatsString, SatsVec,
+};
 use spacetimedb_vm::expr::SourceExpr;
 use std::{ops::RangeBounds, sync::Arc};
 
@@ -54,7 +57,7 @@ impl From<TableId> for AlgebraicValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SequenceSchema {
     pub(crate) sequence_id: u32,
-    pub(crate) sequence_name: String,
+    pub(crate) sequence_name: SatsString,
     pub(crate) table_id: u32,
     pub(crate) col_id: u32,
     pub(crate) increment: i128,
@@ -68,7 +71,7 @@ pub struct SequenceSchema {
 /// It's also adjusted to be convenient for specifying a new sequence
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SequenceDef {
-    pub(crate) sequence_name: String,
+    pub(crate) sequence_name: SatsString,
     pub(crate) table_id: u32,
     pub(crate) col_id: u32,
     pub(crate) increment: i128,
@@ -81,7 +84,7 @@ pub struct SequenceDef {
 pub struct IndexSchema {
     pub(crate) index_id: u32,
     pub(crate) table_id: u32,
-    pub(crate) index_name: String,
+    pub(crate) index_name: SatsString,
     pub(crate) is_unique: bool,
     pub(crate) cols: NonEmpty<u32>,
 }
@@ -91,12 +94,12 @@ pub struct IndexSchema {
 pub struct IndexDef {
     pub(crate) table_id: u32,
     pub(crate) cols: NonEmpty<u32>,
-    pub(crate) name: String,
+    pub(crate) name: SatsString,
     pub(crate) is_unique: bool,
 }
 
 impl IndexDef {
-    pub fn new(name: String, table_id: u32, col_id: u32, is_unique: bool) -> Self {
+    pub fn new(name: SatsString, table_id: u32, col_id: u32, is_unique: bool) -> Self {
         Self {
             cols: NonEmpty::new(col_id),
             name,
@@ -121,7 +124,7 @@ impl From<IndexSchema> for IndexDef {
 pub struct ColumnSchema {
     pub(crate) table_id: u32,
     pub(crate) col_id: u32,
-    pub(crate) col_name: String,
+    pub(crate) col_name: SatsString,
     pub(crate) col_type: AlgebraicType,
     pub(crate) is_autoinc: bool,
 }
@@ -163,7 +166,7 @@ impl From<&ColumnSchema> for ProductTypeElement {
 /// This type is just the [ColumnSchema] without the autoinc fields
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnDef {
-    pub(crate) col_name: String,
+    pub(crate) col_name: SatsString,
     pub(crate) col_type: AlgebraicType,
     pub(crate) is_autoinc: bool,
 }
@@ -181,16 +184,16 @@ impl From<ColumnSchema> for ColumnDef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConstraintSchema {
     pub(crate) constraint_id: u32,
-    pub(crate) constraint_name: String,
+    pub(crate) constraint_name: SatsString,
     pub(crate) kind: ColumnIndexAttribute,
     pub(crate) table_id: u32,
-    pub(crate) columns: Vec<u32>,
+    pub(crate) columns: SatsVec<u32>,
 }
 
 /// This type is just the [ConstraintSchema] without the autoinc fields
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConstraintDef {
-    pub(crate) constraint_name: String,
+    pub(crate) constraint_name: SatsString,
     pub(crate) kind: ColumnIndexAttribute,
     pub(crate) table_id: u32,
     pub(crate) columns: Vec<u32>,
@@ -199,8 +202,8 @@ pub struct ConstraintDef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableSchema {
     pub(crate) table_id: u32,
-    pub(crate) table_name: String,
-    pub(crate) columns: Vec<ColumnSchema>,
+    pub(crate) table_name: SatsString,
+    pub(crate) columns: Box<[ColumnSchema]>,
     pub(crate) indexes: Vec<IndexSchema>,
     pub(crate) constraints: Vec<ConstraintSchema>,
     pub(crate) table_type: StTableType,
@@ -239,7 +242,7 @@ impl TableSchema {
     ///
     /// Warning: It ignores the `table_name`
     pub fn get_column_by_name(&self, col_name: &str) -> Option<&ColumnSchema> {
-        self.columns.iter().find(|x| x.col_name == col_name)
+        self.columns.iter().find(|x| &*x.col_name == col_name)
     }
 
     /// Turn a [TableField] that could be an unqualified field `id` into `table.id`
@@ -279,7 +282,8 @@ impl From<&TableSchema> for ProductType {
                     name: Some(c.col_name.clone()),
                     algebraic_type: c.col_type.clone(),
                 })
-                .collect(),
+                .collect::<SlimSliceBoxCollected<_>>()
+                .unwrap(),
         )
     }
 }
@@ -287,7 +291,7 @@ impl From<&TableSchema> for ProductType {
 impl From<&TableSchema> for SourceExpr {
     fn from(value: &TableSchema) -> Self {
         SourceExpr::DbTable(DbTable::new(
-            &Header::from_product_type(&value.table_name, value.into()),
+            Header::from_product_type(value.table_name.clone(), value.into()),
             value.table_id,
             value.table_type,
             value.table_access,
@@ -297,13 +301,13 @@ impl From<&TableSchema> for SourceExpr {
 
 impl From<&TableSchema> for DbTable {
     fn from(value: &TableSchema) -> Self {
-        DbTable::new(&value.into(), value.table_id, value.table_type, value.table_access)
+        DbTable::new(value.into(), value.table_id, value.table_type, value.table_access)
     }
 }
 
 impl From<&TableSchema> for Header {
     fn from(value: &TableSchema) -> Self {
-        Header::from_product_type(&value.table_name, value.into())
+        Header::from_product_type(value.table_name.clone(), value.into())
     }
 }
 
@@ -316,7 +320,8 @@ impl TableDef {
                     name: None,
                     algebraic_type: c.col_type.clone(),
                 })
-                .collect(),
+                .collect::<SlimSliceBoxCollected<_>>()
+                .unwrap(),
         )
     }
 }
@@ -324,8 +329,8 @@ impl TableDef {
 /// This type is just the [TableSchema] without the autoinc fields
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableDef {
-    pub(crate) table_name: String,
-    pub(crate) columns: Vec<ColumnDef>,
+    pub(crate) table_name: SatsString,
+    pub(crate) columns: Box<[ColumnDef]>,
     pub(crate) indexes: Vec<IndexDef>,
     pub(crate) table_type: StTableType,
     pub(crate) table_access: StAccess,
@@ -334,13 +339,16 @@ pub struct TableDef {
 impl From<ProductType> for TableDef {
     fn from(value: ProductType) -> Self {
         Self {
-            table_name: "".to_string(),
+            table_name: string(""),
             columns: value
                 .elements
                 .iter()
                 .enumerate()
                 .map(|(i, e)| ColumnDef {
-                    col_name: e.name.to_owned().unwrap_or_else(|| i.to_string()),
+                    col_name: e
+                        .name
+                        .to_owned()
+                        .unwrap_or_else(|| SatsString::from_string(i.to_string())),
                     col_type: e.algebraic_type.clone(),
                     is_autoinc: false,
                 })
@@ -356,7 +364,7 @@ impl From<TableSchema> for TableDef {
     fn from(value: TableSchema) -> Self {
         Self {
             table_name: value.table_name,
-            columns: value.columns.into_iter().map(Into::into).collect(),
+            columns: value.columns.into_vec().into_iter().map(Into::into).collect(),
             indexes: value.indexes.into_iter().map(Into::into).collect(),
             table_type: value.table_type,
             table_access: value.table_access,
@@ -462,10 +470,10 @@ pub trait MutTxDatastore: TxDatastore + MutTx {
     fn row_type_for_table_mut_tx(&self, tx: &Self::MutTxId, table_id: TableId) -> Result<ProductType>;
     fn schema_for_table_mut_tx(&self, tx: &Self::MutTxId, table_id: TableId) -> Result<TableSchema>;
     fn drop_table_mut_tx(&self, tx: &mut Self::MutTxId, table_id: TableId) -> Result<()>;
-    fn rename_table_mut_tx(&self, tx: &mut Self::MutTxId, table_id: TableId, new_name: &str) -> Result<()>;
+    fn rename_table_mut_tx(&self, tx: &mut Self::MutTxId, table_id: TableId, new_name: SatsString) -> Result<()>;
     fn table_id_exists(&self, tx: &Self::MutTxId, table_id: &TableId) -> bool;
-    fn table_id_from_name_mut_tx(&self, tx: &Self::MutTxId, table_name: &str) -> Result<Option<TableId>>;
-    fn table_name_from_id_mut_tx(&self, tx: &Self::MutTxId, table_id: TableId) -> Result<Option<String>>;
+    fn table_id_from_name_mut_tx(&self, tx: &Self::MutTxId, table_name: SatsString) -> Result<Option<TableId>>;
+    fn table_name_from_id_mut_tx(&self, tx: &Self::MutTxId, table_id: TableId) -> Result<Option<SatsString>>;
     fn get_all_tables_mut_tx(&self, tx: &Self::MutTxId) -> super::Result<Vec<TableSchema>> {
         let mut tables = Vec::new();
         let table_rows = self.iter_mut_tx(tx, TableId(ST_TABLES_ID))?.collect::<Vec<_>>();
@@ -481,7 +489,7 @@ pub trait MutTxDatastore: TxDatastore + MutTx {
     // Indexes
     fn create_index_mut_tx(&self, tx: &mut Self::MutTxId, index: IndexDef) -> Result<IndexId>;
     fn drop_index_mut_tx(&self, tx: &mut Self::MutTxId, index_id: IndexId) -> Result<()>;
-    fn index_id_from_name_mut_tx(&self, tx: &Self::MutTxId, index_name: &str) -> super::Result<Option<IndexId>>;
+    fn index_id_from_name_mut_tx(&self, tx: &Self::MutTxId, index_name: SatsString) -> super::Result<Option<IndexId>>;
 
     // TODO: Index data
     // - index_scan_mut_tx
@@ -495,7 +503,7 @@ pub trait MutTxDatastore: TxDatastore + MutTx {
     fn sequence_id_from_name_mut_tx(
         &self,
         tx: &Self::MutTxId,
-        sequence_name: &str,
+        sequence_name: SatsString,
     ) -> super::Result<Option<SequenceId>>;
 
     // Data

@@ -1,5 +1,6 @@
 use crate::utils::{encode, ResultBench, START_B};
 use clap::ValueEnum;
+use spacetimedb_lib::sats::SatsString;
 use std::marker::PhantomData;
 use std::ops::Range;
 
@@ -37,13 +38,17 @@ impl<T: BuildDb> Pool<T> {
 pub struct Data {
     pub(crate) a: i32,
     pub(crate) b: u64,
-    pub(crate) c: String,
+    pub(crate) c: SatsString,
 }
 
 impl Data {
     pub fn new(a: i32) -> Self {
         let b = (a as u64) + START_B;
-        Self { a, b, c: encode(b) }
+        Self {
+            a,
+            b,
+            c: SatsString::from_string(encode(b)),
+        }
     }
 }
 

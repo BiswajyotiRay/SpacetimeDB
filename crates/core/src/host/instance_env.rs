@@ -18,7 +18,7 @@ use spacetimedb_lib::filter::CmpArgs;
 use spacetimedb_lib::identity::AuthCtx;
 use spacetimedb_lib::operator::OpQuery;
 use spacetimedb_lib::relation::{FieldExpr, FieldName};
-use spacetimedb_sats::{ProductType, Typespace};
+use spacetimedb_sats::{ProductType, SatsString, Typespace};
 use spacetimedb_vm::expr::{Code, ColumnOp};
 
 #[derive(Clone)]
@@ -46,7 +46,7 @@ impl InstanceEnv {
     #[tracing::instrument(skip_all)]
     pub fn schedule(
         &self,
-        reducer: String,
+        reducer: SatsString,
         args: Vec<u8>,
         time: Timestamp,
     ) -> Result<ScheduledReducerId, ScheduleError> {
@@ -234,16 +234,13 @@ impl InstanceEnv {
     ///
     /// Errors with `TableNotFound` if the table does not exist.
     #[tracing::instrument(skip_all)]
-    pub fn get_table_id(&self, table_name: String) -> Result<u32, NodesError> {
+    pub fn get_table_id(&self, table_name: SatsString) -> Result<u32, NodesError> {
         let stdb = &*self.dbic.relational_db;
         let tx = &mut *self.get_tx()?;
 
         // Query the table id from the name.
-        let table_id = stdb
-            .table_id_from_name(tx, &table_name)?
-            .ok_or(NodesError::TableNotFound)?;
-
-        Ok(table_id)
+        stdb.table_id_from_name(tx, table_name)?
+            .ok_or(NodesError::TableNotFound)
     }
 
     /// Creates an index of type `index_type`,
@@ -258,7 +255,7 @@ impl InstanceEnv {
     #[tracing::instrument(skip_all)]
     pub fn create_index(
         &self,
-        index_name: String,
+        index_name: SatsString,
         table_id: u32,
         index_type: u8,
         col_ids: Vec<u8>,
@@ -285,7 +282,7 @@ impl InstanceEnv {
         let index = IndexDef {
             table_id,
             cols,
-            name: index_name,
+            name: index_name.clone(),
             is_unique,
         };
 
