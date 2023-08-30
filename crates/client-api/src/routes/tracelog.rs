@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use http::StatusCode;
 use serde::Deserialize;
 use spacetimedb_lib::Identity;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 use spacetimedb::address::Address;
 use spacetimedb::database_instance_context::DatabaseInstanceContext;
@@ -73,7 +73,7 @@ pub async fn stop_tracelog(
 pub async fn perform_tracelog_replay(body: Bytes) -> axum::response::Result<impl IntoResponse> {
     // Build out a temporary database
     let storage = Storage::Disk;
-    let tmp_dir = TempDir::new("stdb_test").expect("establish tmpdir");
+    let tmp_dir = TempDir::with_prefix("stdb_test").expect("establish tmpdir");
     let db_path = tmp_dir.path();
     let logger_path = tmp_dir.path();
     let identity = Identity::from_byte_array(hash_bytes(b"This is a fake identity.").data);

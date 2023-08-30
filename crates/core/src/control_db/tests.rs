@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use once_cell::sync::Lazy;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 use super::*;
 
@@ -10,7 +10,7 @@ static BOB: Lazy<Identity> = Lazy::new(|| Identity::from_hashing_bytes("bob"));
 
 #[tokio::test]
 async fn test_register_tld() -> anyhow::Result<()> {
-    let tmp = TempDir::new("register-tld")?;
+    let tmp = TempDir::with_prefix("register-tld")?;
 
     let domain: DomainName = "amaze".parse()?;
     let cdb = tokio::task::spawn_blocking({
@@ -43,7 +43,7 @@ async fn test_register_tld() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_domain() -> anyhow::Result<()> {
-    let tmp = TempDir::new("insert-domain")?;
+    let tmp = TempDir::with_prefix("insert-domain")?;
     let domain: DomainName = "this/hASmiXed/case".parse()?;
     let domain_lower: DomainName = domain.to_lowercase().parse()?;
 

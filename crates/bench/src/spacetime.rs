@@ -8,7 +8,7 @@ use spacetimedb_lib::{AlgebraicType, AlgebraicValue, ProductType};
 type DbResult = (RelationalDB, TempDir, u32);
 
 fn init_db(in_memory: bool, fsync: bool) -> ResultBench<(TempDir, u32)> {
-    let tmp_dir = TempDir::new("stdb_test")?;
+    let tmp_dir = TempDir::with_prefix("stdb_test")?;
     let stdb = open_db(tmp_dir.path(), in_memory, fsync)?;
     let mut tx = stdb.begin_tx();
     let table_id = stdb.create_table(
