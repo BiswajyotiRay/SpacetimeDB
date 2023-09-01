@@ -81,10 +81,10 @@ pub async fn handle_websocket(
     };
 
     let ws_config = WebSocketConfig {
-        max_send_queue: None,
         max_message_size: Some(0x2000000),
         max_frame_size: None,
         accept_unmasked_frames: false,
+        ..Default::default()
     };
 
     tokio::spawn(async move {

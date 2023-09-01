@@ -53,7 +53,7 @@ impl Unsupported for HiveDistributionStyle {
 }
 
 macro_rules! unsupported{
-    ($name:literal,$a:expr)=>{
+    ($name:literal,$a:expr)=>{{
         let name = stringify!($name);
         let it = stringify!($a);
         if $a.unsupported() {
@@ -62,19 +62,10 @@ macro_rules! unsupported{
 
             });
         }
-    };
-    ($name:literal,$a:expr,$b:expr)=>{
-        {
-            unsupported!($name,$a);
-            unsupported!($name,$b);
-        }
-    };
-    ($name:literal, $a:expr,$($b:tt)*)=>{
-       {
-           unsupported!($name, $a);
-           unsupported!($name, $($b)*);
-       }
-    }
+    }};
+    ($name:literal,$($a:expr),+$(,)?)=> {{
+        $(unsupported!($name,$a);)+
+    }};
 }
 
 /// A convenient wrapper for a table name (that comes from an `ObjectName`).
@@ -352,8 +343,9 @@ fn compile_table_factor(table: TableFactor) -> Result<Table, PlanError> {
             alias,
             args,
             with_hints,
+            version,
         } => {
-            unsupported!("TableFactor", alias, args, with_hints);
+            unsupported!("TableFactor", alias, args, with_hints, version);
 
             Ok(Table::new(name))
         }
@@ -959,6 +951,9 @@ fn compile_statement(db: &RelationalDB, tx: &MutTxId, statement: Statement) -> R
             on_commit,
             on_cluster,
             order_by,
+            comment,
+            auto_increment_offset,
+            strict,
         } => {
             if let Some(x) = &hive_formats {
                 if x.row_format
@@ -993,7 +988,10 @@ fn compile_statement(db: &RelationalDB, tx: &MutTxId, statement: Statement) -> R
                 collation,
                 on_commit,
                 on_cluster,
-                order_by
+                order_by,
+                comment,
+                auto_increment_offset,
+                strict,
             );
             let table = Table::new(name);
             compile_create_table(table, columns)
@@ -1005,8 +1003,9 @@ fn compile_statement(db: &RelationalDB, tx: &MutTxId, statement: Statement) -> R
             cascade,
             restrict,
             purge,
+            temporary,
         } => {
-            unsupported!("DROP", if_exists, cascade, purge, restrict);
+            unsupported!("DROP", if_exists, cascade, purge, restrict, temporary);
 
             if names.len() > 1 {
                 return Err(PlanError::Unsupported {

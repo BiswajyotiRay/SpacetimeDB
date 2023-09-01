@@ -1,10 +1,10 @@
 use crate::api::{from_json_seed, ClientApi, Connection, StmtResultJson};
 use clap::{Arg, ArgAction, ArgGroup, ArgMatches};
+use itertools::Itertools;
 use reqwest::RequestBuilder;
 use spacetimedb_lib::de::serde::SeedWrapper;
 use spacetimedb_lib::sats::{satn, Typespace};
-use tabled::builder::Builder;
-use tabled::Style;
+use tabled::settings::Style;
 
 use crate::config::Config;
 use crate::util::{database_address, get_auth_header_only};
@@ -90,40 +90,38 @@ pub(crate) async fn run_sql(builder: RequestBuilder, sql: &str) -> Result<(), an
         return Ok(());
     };
 
-    for (i, stmt_result) in stmt_result_json.iter().enumerate() {
-        let StmtResultJson { schema, rows } = &stmt_result;
-
-        let mut builder = Builder::default();
-        builder.set_columns(
-            schema
-                .elements
-                .iter()
-                .enumerate()
-                .map(|(i, e)| e.name.clone().unwrap_or_else(|| format!("column {i}"))),
-        );
-
-        let typespace = Typespace::default();
-        let ty = typespace.with_type(schema);
-        for row in rows {
-            let row = from_json_seed(row.get(), SeedWrapper(ty))?;
-            builder.add_record(
-                row.elements
-                    .iter()
-                    .zip(&schema.elements)
-                    .map(|(v, e)| satn::PsqlWrapper(ty.with(&e.algebraic_type).with_value(v))),
-            );
-        }
-
-        let table = builder.build().with(Style::psql());
-
-        if i > 0 {
-            println!("\n{}", table);
-        } else {
-            println!("{}", table);
-        }
-    }
+    stmt_result_json
+        .iter()
+        .map(stmt_result_to_table)
+        .process_results(|it| println!("{}", it.format("\n\n")))?;
 
     Ok(())
+}
+
+fn stmt_result_to_table(stmt_result: &StmtResultJson) -> anyhow::Result<tabled::Table> {
+    let StmtResultJson { schema, rows } = stmt_result;
+
+    let mut builder = tabled::builder::Builder::default();
+    builder.set_header(
+        schema
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(i, e)| e.name.clone().unwrap_or_else(|| format!("column {i}"))),
+    );
+
+    let ty = Typespace::EMPTY.with_type(schema);
+    for row in rows {
+        let row = from_json_seed(row.get(), SeedWrapper(ty))?;
+        builder.push_record(
+            ty.with_values(&row)
+                .map(|col_val| satn::PsqlWrapper(col_val).to_string()),
+        );
+    }
+
+    let mut table = builder.build();
+    table.with(Style::psql());
+    Ok(table)
 }
 
 pub async fn exec(config: Config, args: &ArgMatches) -> Result<(), anyhow::Error> {
