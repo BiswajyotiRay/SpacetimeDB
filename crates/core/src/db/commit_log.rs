@@ -14,7 +14,7 @@ use crate::{
     },
     error::DBError,
 };
-use spacetimedb_lib::hash::hash_bytes;
+use spacetimedb_sats::hash::hash_bytes;
 use std::sync::Arc;
 use std::sync::Mutex;
 

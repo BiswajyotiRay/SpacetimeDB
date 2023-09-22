@@ -1,6 +1,6 @@
 use crate::algebraic_value::AlgebraicValue;
 use crate::product_type::ProductType;
-use crate::ArrayValue;
+use crate::{ArrayValue, SumValue};
 use nonempty::NonEmpty;
 
 /// A product value is made of a a list of
@@ -158,8 +158,13 @@ impl ProductValue {
         self.extract_field(index, named, |f| f.as_bytes().map(|x| x.as_slice()))
     }
 
-    /// Interprets the value at field of `self` identified by `index` as a array.
+    /// Interprets the value at field of `self` identified by `index` as an `ArrayValue`.
     pub fn field_as_array(&self, index: usize, named: Option<&'static str>) -> Result<&ArrayValue, InvalidFieldError> {
         self.extract_field(index, named, |f| f.as_array())
+    }
+
+    /// Interprets the value at field of `self` identified by `index` as a `SumValue`.
+    pub fn field_as_sum(&self, index: usize, named: Option<&'static str>) -> Result<SumValue, InvalidFieldError> {
+        self.extract_field(index, named, |f| f.as_sum().cloned())
     }
 }

@@ -1,15 +1,12 @@
 //! The [DbProgram] that execute arbitrary queries & code against the database.
 use crate::db::cursor::{CatalogCursor, IndexCursor, TableCursor};
 use crate::db::datastore::locking_tx_datastore::MutTxId;
-use crate::db::datastore::traits::{ColumnDef, IndexDef, IndexId, SequenceId, TableDef};
+use crate::db::datastore::traits::{ConstraintId, IndexId, SequenceId};
 use crate::db::relational_db::RelationalDB;
 use itertools::Itertools;
-use nonempty::NonEmpty;
-use spacetimedb_lib::auth::{StAccess, StTableType};
 use spacetimedb_lib::identity::AuthCtx;
-use spacetimedb_lib::relation::{DbTable, FieldExpr, Relation};
-use spacetimedb_lib::relation::{Header, MemTable, RelIter, RelValue, RowCount, Table};
-use spacetimedb_lib::table::ProductTypeMeta;
+use spacetimedb_sats::db::def::*;
+use spacetimedb_sats::relation::{DbTable, FieldExpr, Header, MemTable, RelIter, RelValue, Relation, RowCount, Table};
 use spacetimedb_sats::{AlgebraicValue, ProductValue};
 use spacetimedb_vm::dsl::mem_table;
 use spacetimedb_vm::env::EnvDb;
@@ -40,13 +37,14 @@ pub fn build_query<'a>(
     // If the first operation is an index scan, open an index cursor, else a table cursor.
     let (mut result, ops) = if let Some(Query::IndexScan(IndexScan {
         table,
-        col_id,
+        columns,
         lower_bound,
         upper_bound,
     })) = first
     {
+        assert_eq!(columns.len(), 1, "Multi-column scan not supported");
         (
-            iter_by_col_range(stdb, tx, table, col_id, (lower_bound, upper_bound))?,
+            iter_by_col_range(stdb, tx, table, columns.head, (lower_bound, upper_bound))?,
             ops.collect(),
         )
     } else if let Some(op) = first {
@@ -213,41 +211,8 @@ impl<'db, 'tx> DbProgram<'db, 'tx> {
         }
     }
 
-    fn create_table(
-        &mut self,
-        table_name: &str,
-        columns: ProductTypeMeta,
-        table_type: StTableType,
-        table_access: StAccess,
-    ) -> Result<Code, ErrorVm> {
-        let mut cols = Vec::new();
-        let mut indexes = Vec::new();
-        for (i, column) in columns.columns.elements.iter().enumerate() {
-            let meta = columns.attr[i];
-            if meta.is_unique() {
-                indexes.push(IndexDef {
-                    table_id: 0, // Ignored
-                    cols: NonEmpty::new(i as u32),
-                    name: format!("{}_{}_idx", table_name, i),
-                    is_unique: true,
-                });
-            }
-            cols.push(ColumnDef {
-                col_name: column.name.clone().unwrap_or(i.to_string()),
-                col_type: column.algebraic_type.clone(),
-                is_autoinc: meta.is_autoinc(),
-            })
-        }
-        self.db.create_table(
-            self.tx,
-            TableDef {
-                table_name: table_name.to_string(),
-                columns: cols,
-                indexes,
-                table_type,
-                table_access,
-            },
-        )?;
+    fn create_table(&mut self, table: TableDef) -> Result<Code, ErrorVm> {
+        self.db.create_table(self.tx, table)?;
         Ok(Code::Pass)
     }
 
@@ -266,6 +231,11 @@ impl<'db, 'tx> DbProgram<'db, 'tx> {
             DbType::Sequence => {
                 if let Some(id) = self.db.sequence_id_from_name(self.tx, name)? {
                     self.db.drop_sequence(self.tx, SequenceId(id))?;
+                }
+            }
+            DbType::Constraint => {
+                if let Some(id) = self.db.constraint_id_from_name(self.tx, name)? {
+                    self.db.drop_constraint(self.tx, ConstraintId(id))?;
                 }
             }
         }
@@ -320,13 +290,8 @@ impl ProgramVm for DbProgram<'_, '_> {
                 let result = self.delete_query(query)?;
                 Ok(result)
             }
-            CrudCode::CreateTable {
-                name,
-                columns,
-                table_type,
-                table_access,
-            } => {
-                let result = self.create_table(&name, columns, table_type, table_access)?;
+            CrudCode::CreateTable { table } => {
+                let result = self.create_table(table)?;
                 Ok(result)
             }
             CrudCode::Drop {
@@ -406,12 +371,14 @@ pub(crate) mod tests {
     use crate::db::datastore::system_tables::{
         st_columns_schema, st_indexes_schema, st_sequences_schema, st_table_schema, StColumnFields, StColumnRow,
         StIndexFields, StIndexRow, StSequenceFields, StSequenceRow, StTableFields, StTableRow, ST_COLUMNS_ID,
-        ST_SEQUENCES_ID, ST_TABLES_ID,
+        ST_COLUMNS_NAME, ST_INDEXES_NAME, ST_SEQUENCES_ID, ST_SEQUENCES_NAME, ST_TABLES_ID, ST_TABLES_NAME,
     };
+    use crate::db::datastore::traits::TableId;
     use crate::db::relational_db::tests_utils::make_test_db;
-    use crate::db::relational_db::{ST_COLUMNS_NAME, ST_INDEXES_NAME, ST_SEQUENCES_NAME, ST_TABLES_NAME};
+    use nonempty::NonEmpty;
     use spacetimedb_lib::error::ResultTest;
-    use spacetimedb_lib::relation::{DbTable, FieldName};
+    use spacetimedb_sats::db::auth::{StAccess, StTableType};
+    use spacetimedb_sats::relation::{DbTable, FieldName};
     use spacetimedb_sats::{product, AlgebraicType, BuiltinType, ProductType, ProductValue};
     use spacetimedb_vm::dsl::*;
     use spacetimedb_vm::eval::run_ast;
@@ -435,10 +402,11 @@ pub(crate) mod tests {
                     .map(|(i, e)| ColumnDef {
                         col_name: e.name.clone().unwrap_or(i.to_string()),
                         col_type: e.algebraic_type.clone(),
-                        is_autoinc: false,
                     })
                     .collect(),
                 indexes: vec![],
+                constraints: vec![],
+                sequences: vec![],
                 table_type: StTableType::User,
                 table_access: StAccess::for_name(table_name),
             },
@@ -560,7 +528,7 @@ pub(crate) mod tests {
             )
             .with_select_cmp(
                 OpCmp::Eq,
-                FieldName::named(ST_COLUMNS_NAME, StColumnFields::ColId.name()),
+                FieldName::named(ST_COLUMNS_NAME, StColumnFields::ColPos.name()),
                 scalar(StColumnFields::TableId as u32),
             );
         check_catalog(
@@ -568,10 +536,9 @@ pub(crate) mod tests {
             ST_COLUMNS_NAME,
             (&StColumnRow {
                 table_id: ST_COLUMNS_ID.0,
-                col_id: StColumnFields::TableId as u32,
+                col_pos: StColumnFields::TableId as u32,
                 col_name: StColumnFields::TableId.name(),
                 col_type: AlgebraicType::U32,
-                is_autoinc: false,
             })
                 .into(),
             q,
@@ -595,8 +562,8 @@ pub(crate) mod tests {
         db.commit_tx(tx)?;
 
         let mut tx = db.begin_tx();
-        let index = IndexDef::new("idx_1".into(), table_id, 0, true);
-        let index_id = db.create_index(&mut tx, index)?;
+        let index = IndexDef::new("idx_1", NonEmpty::new(0), true, IndexType::BTree);
+        let index_id = db.create_index(&mut tx, TableId(table_id), index)?;
 
         let p = &mut DbProgram::new(&db, &mut tx, AuthCtx::for_testing());
 
@@ -610,9 +577,10 @@ pub(crate) mod tests {
             ST_INDEXES_NAME,
             (&StIndexRow {
                 index_id: index_id.0,
-                index_name: "idx_1",
                 table_id,
-                cols: NonEmpty::new(0),
+                index_name: "idx_1",
+                index_type: IndexType::BTree,
+                columns: NonEmpty::new(0),
                 is_unique: true,
             })
                 .into(),
@@ -641,14 +609,14 @@ pub(crate) mod tests {
             p,
             ST_SEQUENCES_NAME,
             (&StSequenceRow {
-                sequence_id: 1,
-                sequence_name: "sequence_id_seq",
+                sequence_id: 3,
+                sequence_name: "seq_st_sequence_sequence_id_primary_key_auto",
                 table_id: 2,
-                col_id: 0,
+                col_pos: 0,
                 increment: 1,
                 start: 4,
                 min_value: 1,
-                max_value: 4294967295,
+                max_value: i128::MAX,
                 allocated: 4096,
             })
                 .into(),

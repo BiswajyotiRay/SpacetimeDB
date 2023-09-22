@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::database_instance_context::DatabaseInstanceContext;
 use crate::database_logger::{BacktraceProvider, LogLevel, Record};
 use crate::db::datastore::locking_tx_datastore::MutTxId;
-use crate::db::datastore::traits::{DataRow, IndexDef};
+use crate::db::datastore::traits::{DataRow, TableId};
 use crate::error::{IndexError, NodesError};
 use crate::util::ResultInspectExt;
 
@@ -17,7 +17,8 @@ use crate::vm::DbProgram;
 use spacetimedb_lib::filter::CmpArgs;
 use spacetimedb_lib::identity::AuthCtx;
 use spacetimedb_lib::operator::OpQuery;
-use spacetimedb_lib::relation::{FieldExpr, FieldName};
+use spacetimedb_sats::db::def::{IndexDef, IndexType};
+use spacetimedb_sats::relation::{FieldExpr, FieldName};
 use spacetimedb_sats::{ProductType, Typespace};
 use spacetimedb_vm::expr::{Code, ColumnOp};
 
@@ -78,7 +79,7 @@ impl InstanceEnv {
                 crate::error::DBError::Index(IndexError::UniqueConstraintViolation {
                     constraint_name: _,
                     table_name: _,
-                    col_names: _,
+                    cols: _,
                     value: _,
                 }) => {}
                 _ => {
@@ -268,28 +269,29 @@ impl InstanceEnv {
 
         // TODO(george) This check should probably move towards src/db/index, but right
         // now the API is pretty hardwired towards btrees.
-        //
-        // TODO(george) Dedup the constant here.
+        let index_type = IndexType::try_from(index_type).map_err(|_| NodesError::BadIndexType(index_type))?;
+
         match index_type {
-            0 => (),
-            1 => todo!("Hash indexes not yet supported"),
-            _ => return Err(NodesError::BadIndexType(index_type)),
+            IndexType::BTree => {}
+            IndexType::Hash => {
+                todo!("Hash indexes not yet supported")
+            }
         };
 
-        let cols = NonEmpty::from_slice(&col_ids)
+        let columns = NonEmpty::from_slice(&col_ids)
             .expect("Attempt to create an index with zero columns")
             .map(|x| x as u32);
 
-        let is_unique = stdb.column_attrs(tx, table_id, &cols)?.is_unique();
+        let is_unique = stdb.column_constraints(tx, table_id, &columns)?.has_unique();
 
         let index = IndexDef {
-            table_id,
-            cols,
-            name: index_name,
+            columns,
+            index_name,
             is_unique,
+            index_type,
         };
 
-        stdb.create_index(tx, index)?;
+        stdb.create_index(tx, TableId(table_id), index)?;
 
         Ok(())
     }

@@ -4146,6 +4146,7 @@ dependencies = [
  "bytes",
  "derive_more",
  "log",
+ "nonempty",
  "once_cell",
  "rand 0.8.5",
  "scoped-tls",
@@ -4210,6 +4211,7 @@ dependencies = [
  "is-terminal",
  "itertools",
  "jsonwebtoken",
+ "nonempty",
  "reqwest",
  "rustyline",
  "serde",
@@ -4368,7 +4370,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "sha3",
  "spacetimedb-bindings-macro",
  "spacetimedb-sats",
  "thiserror",
@@ -4387,6 +4388,7 @@ name = "spacetimedb-sats"
 version = "0.6.1"
 dependencies = [
  "arrayvec",
+ "bitflags 2.3.3",
  "bytes",
  "decorum",
  "derive_more",
@@ -4397,6 +4399,7 @@ dependencies = [
  "proptest",
  "rand 0.8.5",
  "serde",
+ "sha3",
  "spacetimedb-bindings-macro",
  "thiserror",
  "tracing",
@@ -4476,6 +4479,7 @@ version = "0.6.1"
 dependencies = [
  "anyhow",
  "derive_more",
+ "nonempty",
  "spacetimedb-lib",
  "spacetimedb-sats",
  "tempdir",

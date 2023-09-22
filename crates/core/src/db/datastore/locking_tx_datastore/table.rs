@@ -2,8 +2,9 @@ use super::{
     btree_index::{BTreeIndex, BTreeIndexRangeIter},
     RowId,
 };
-use crate::db::datastore::traits::{ColId, TableSchema};
+use crate::db::datastore::traits::ColId;
 use nonempty::NonEmpty;
+use spacetimedb_sats::db::def::TableSchema;
 use spacetimedb_sats::{AlgebraicValue, ProductType, ProductValue};
 use std::{
     collections::{BTreeMap, HashMap},

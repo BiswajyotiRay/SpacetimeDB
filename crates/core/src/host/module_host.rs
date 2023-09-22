@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::{Arc, Weak};
+use std::time::Duration;
+use tokio::sync::oneshot;
+
 use super::host_controller::HostThreadpool;
 use super::{ArgsTuple, EnergyDiff, InvalidReducerArguments, ReducerArgs, ReducerCallResult, Timestamp};
 use crate::client::ClientConnectionSender;
@@ -15,14 +21,9 @@ use crate::util::notify_once::NotifyOnce;
 use base64::{engine::general_purpose::STANDARD as BASE_64_STD, Engine as _};
 use futures::{Future, FutureExt};
 use indexmap::IndexMap;
-use spacetimedb_lib::relation::MemTable;
-use spacetimedb_lib::{ReducerDef, TableDef};
+use spacetimedb_lib::{ReducerDef, TableDesc};
+use spacetimedb_sats::relation::MemTable;
 use spacetimedb_sats::{ProductValue, Typespace, WithTypespace};
-use std::collections::HashMap;
-use std::fmt;
-use std::sync::{Arc, Weak};
-use std::time::Duration;
-use tokio::sync::oneshot;
 
 #[derive(Debug, Default, Clone)]
 pub struct DatabaseUpdate {
@@ -215,7 +216,7 @@ pub trait Module: Send + Sync + 'static {
         &self,
         caller_identity: Identity,
         query: String,
-    ) -> Result<Vec<spacetimedb_lib::relation::MemTable>, DBError>;
+    ) -> Result<Vec<spacetimedb_sats::relation::MemTable>, DBError>;
 
     #[cfg(feature = "tracelogging")]
     fn get_trace(&self) -> Option<bytes::Bytes>;
@@ -310,7 +311,7 @@ trait DynModuleHost: Send + Sync + 'static {
         &self,
         caller_identity: Identity,
         query: String,
-    ) -> Result<Vec<spacetimedb_lib::relation::MemTable>, DBError>;
+    ) -> Result<Vec<spacetimedb_sats::relation::MemTable>, DBError>;
     fn start(&self);
     fn exit(&self) -> Closed<'_>;
     fn exited(&self) -> Closed<'_>;
@@ -379,7 +380,7 @@ impl<T: Module> DynModuleHost for HostControllerActor<T> {
         &self,
         caller_identity: Identity,
         query: String,
-    ) -> Result<Vec<spacetimedb_lib::relation::MemTable>, DBError> {
+    ) -> Result<Vec<spacetimedb_sats::relation::MemTable>, DBError> {
         self.module.one_off_query(caller_identity, query)
     }
 
@@ -612,7 +613,7 @@ impl WeakModuleHost {
 #[derive(Debug)]
 pub enum EntityDef {
     Reducer(ReducerDef),
-    Table(TableDef),
+    Table(TableDesc),
 }
 impl EntityDef {
     pub fn as_reducer(&self) -> Option<&ReducerDef> {
@@ -621,7 +622,7 @@ impl EntityDef {
             _ => None,
         }
     }
-    pub fn as_table(&self) -> Option<&TableDef> {
+    pub fn as_table(&self) -> Option<&TableDesc> {
         match self {
             Self::Table(x) => Some(x),
             _ => None,
@@ -643,7 +644,7 @@ impl Catalog {
         let schema = self.get(name)?;
         Some(schema.with(schema.ty().as_reducer()?))
     }
-    pub fn get_table(&self, name: &str) -> Option<WithTypespace<'_, TableDef>> {
+    pub fn get_table(&self, name: &str) -> Option<WithTypespace<'_, TableDesc>> {
         let schema = self.get(name)?;
         Some(schema.with(schema.ty().as_table()?))
     }

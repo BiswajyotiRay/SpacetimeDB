@@ -1,11 +1,11 @@
 use super::RowId;
-use crate::{
-    db::datastore::traits::{IndexId, IndexSchema},
-    error::DBError,
-};
+use crate::db::datastore::locking_tx_datastore::table::Table;
+use crate::error::IndexError;
+use crate::{db::datastore::traits::IndexId, error::DBError};
 use nonempty::NonEmpty;
-use spacetimedb_lib::{data_key::ToDataKey, DataKey};
-use spacetimedb_sats::{AlgebraicValue, ProductValue};
+use spacetimedb_sats::data_key::ToDataKey;
+use spacetimedb_sats::db::def::{IndexSchema, IndexType};
+use spacetimedb_sats::{AlgebraicValue, DataKey, ProductValue};
 use std::{
     collections::{btree_set, BTreeSet},
     ops::{Bound, RangeBounds},
@@ -168,6 +168,19 @@ impl BTreeIndex {
         }
         Ok(())
     }
+
+    pub(crate) fn build_error_unique(&self, table: &Table, value: AlgebraicValue) -> IndexError {
+        IndexError::UniqueConstraintViolation {
+            constraint_name: self.name.clone(),
+            table_name: table.schema.table_name.clone(),
+            cols: self
+                .cols
+                .iter()
+                .map(|&x| table.schema.columns[x as usize].col_name.clone())
+                .collect(),
+            value,
+        }
+    }
 }
 
 impl From<&BTreeIndex> for IndexSchema {
@@ -175,9 +188,10 @@ impl From<&BTreeIndex> for IndexSchema {
         IndexSchema {
             index_id: x.index_id.0,
             table_id: x.table_id,
-            cols: x.cols.clone(),
+            columns: x.cols.clone(),
             is_unique: x.is_unique,
             index_name: x.name.clone(),
+            index_type: IndexType::BTree,
         }
     }
 }

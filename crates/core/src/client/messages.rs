@@ -1,7 +1,7 @@
 use base64::Engine;
 use prost::Message as _;
 use spacetimedb_client_api_messages::client_api::{OneOffQueryResponse, OneOffTable};
-use spacetimedb_lib::relation::MemTable;
+use spacetimedb_sats::relation::MemTable;
 
 use crate::host::module_host::{DatabaseUpdate, EventStatus, ModuleEvent};
 use crate::identity::Identity;

@@ -13,7 +13,7 @@ use spacetimedb_lib::buffer::{BufReader, BufWriter, Cursor, DecodeError};
 pub use spacetimedb_lib::de::{Deserialize, DeserializeOwned};
 use spacetimedb_lib::sats::{impl_deserialize, impl_serialize, impl_st};
 pub use spacetimedb_lib::ser::Serialize;
-use spacetimedb_lib::{bsatn, ColumnIndexAttribute, IndexType, PrimaryKey, ProductType, ProductValue};
+use spacetimedb_lib::{bsatn, PrimaryKey, ProductType, ProductValue};
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::{fmt, panic};
@@ -31,7 +31,9 @@ pub use spacetimedb_bindings_sys as sys;
 pub use sys::Errno;
 use sys::{Buffer, BufferIter};
 
+use crate::sats::db::def::{ConstraintFlags, IndexType};
 pub use log;
+use spacetimedb_lib::sats::db::def::Constraints;
 
 pub type Result<T = (), E = Errno> = core::result::Result<T, E>;
 
@@ -129,7 +131,10 @@ pub fn insert<T: TableType>(table_id: u32, row: T) -> T::InsertResult {
             let mut i = 0;
             let mut x = false;
             while i < T::COLUMN_ATTRS.len() {
-                if T::COLUMN_ATTRS[i].is_autoinc() {
+                let constraint = Constraints {
+                    attr: T::COLUMN_ATTRS[i],
+                };
+                if constraint.has_autoinc() {
                     x = true;
                     break;
                 }
@@ -384,7 +389,7 @@ impl<T, De: BufferDeserialize<Item = T>> Iterator for RawTableIter<De> {
 
 /// Defines a named index with an index type over a set of columns identified by their IDs.
 #[derive(Clone, Copy)]
-pub struct IndexDef<'a> {
+pub struct IndexDesc<'a> {
     /// The name of the index.
     pub name: &'a str,
     /// The type of index used, i.e. the strategy used for indexing.
@@ -412,8 +417,8 @@ impl<T: TableType> Iterator for TableIter<T> {
 /// Additionally, the type knows its own table name, its column attributes, and indices.
 pub trait TableType: SpacetimeType + DeserializeOwned + Serialize {
     const TABLE_NAME: &'static str;
-    const COLUMN_ATTRS: &'static [ColumnIndexAttribute];
-    const INDEXES: &'static [IndexDef<'static>];
+    const COLUMN_ATTRS: &'static [ConstraintFlags];
+    const INDEXES: &'static [IndexDesc<'static>];
     type InsertResult: sealed::InsertResult<T = Self>;
 
     /// Returns the ID of this table.

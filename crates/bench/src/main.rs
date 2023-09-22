@@ -11,7 +11,7 @@ struct Cli {
     command: Commands,
 }
 
-// Note: Reflex this same benchmarks in `benches/db.rs`
+// Note: Reflex this same benchmarks in `benches/def`
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Generate insert, each generate a transaction

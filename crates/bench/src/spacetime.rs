@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use spacetimedb::db::datastore::locking_tx_datastore::MutTxId;
-use spacetimedb::db::datastore::traits::TableDef;
 use spacetimedb::db::relational_db::{open_db, RelationalDB};
+use spacetimedb_lib::sats::db::def::TableDef;
 use spacetimedb_lib::sats::product;
 use spacetimedb_lib::{AlgebraicType, AlgebraicValue, ProductType};
 
@@ -13,11 +13,14 @@ fn init_db(in_memory: bool, fsync: bool) -> ResultBench<(TempDir, u32)> {
     let mut tx = stdb.begin_tx();
     let table_id = stdb.create_table(
         &mut tx,
-        TableDef::from(ProductType::from_iter([
-            ("a", AlgebraicType::I32),
-            ("b", AlgebraicType::U64),
-            ("c", AlgebraicType::String),
-        ])),
+        TableDef::from_product(
+            "table",
+            ProductType::from_iter([
+                ("a", AlgebraicType::I32),
+                ("b", AlgebraicType::U64),
+                ("c", AlgebraicType::String),
+            ]),
+        ),
     )?;
     stdb.commit_tx(tx)?;
     Ok((tmp_dir, table_id))

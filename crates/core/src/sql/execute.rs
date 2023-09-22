@@ -1,6 +1,6 @@
 use spacetimedb_lib::identity::AuthCtx;
-use spacetimedb_lib::relation::MemTable;
 use spacetimedb_lib::{ProductType, ProductValue};
+use spacetimedb_sats::relation::MemTable;
 use spacetimedb_vm::eval::run_ast;
 use spacetimedb_vm::expr::{CodeResult, CrudExpr, Expr};
 
@@ -100,13 +100,13 @@ pub(crate) fn run(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::db::datastore::system_tables::{ST_TABLES_ID, ST_TABLES_NAME};
     use crate::db::relational_db::tests_utils::make_test_db;
-    use crate::db::relational_db::{ST_TABLES_ID, ST_TABLES_NAME};
     use crate::vm::tests::create_table_with_rows;
     use itertools::Itertools;
-    use spacetimedb_lib::auth::{StAccess, StTableType};
     use spacetimedb_lib::error::ResultTest;
-    use spacetimedb_lib::relation::{Header, RelValue};
+    use spacetimedb_sats::db::auth::{StAccess, StTableType};
+    use spacetimedb_sats::relation::{Header, RelValue};
     use spacetimedb_sats::{product, AlgebraicType, BuiltinType, ProductType};
     use spacetimedb_vm::dsl::{mem_table, scalar};
     use spacetimedb_vm::eval::create_game_data;
@@ -216,18 +216,18 @@ pub(crate) mod tests {
     fn test_select_catalog() -> ResultTest<()> {
         let (db, _, _tmp_dir) = create_data(1)?;
         let mut tx = db.begin_tx();
-        let schema = db.schema_for_table(&tx, ST_TABLES_ID).unwrap();
+        let schema = db.schema_for_table(&tx, ST_TABLES_ID.0).unwrap();
 
         let result = run_for_testing(
             &db,
             &mut tx,
-            &format!("SELECT * FROM {} WHERE table_id = {}", ST_TABLES_NAME, ST_TABLES_ID),
+            &format!("SELECT * FROM {} WHERE table_id = {}", ST_TABLES_NAME, ST_TABLES_ID.0),
         )?;
 
         assert_eq!(result.len(), 1, "Not return results");
         let result = result.first().unwrap().clone();
         let row = product!(
-            scalar(ST_TABLES_ID),
+            scalar(ST_TABLES_ID.0),
             scalar(ST_TABLES_NAME),
             scalar(StTableType::System.as_str()),
             scalar(StAccess::Public.as_str()),
@@ -629,6 +629,13 @@ pub(crate) mod tests {
 
             let col = t.columns.first().unwrap();
             let idx = t.indexes.first().map(|x| x.is_unique);
+            let column_auto_inc = t
+                .constraints
+                .first()
+                .map(|x| x.constraints.has_autoinc())
+                .unwrap_or(false);
+            let column_auto_inc =
+                column_auto_inc || t.sequences.first().map(|x| x.col_pos == col.col_pos).unwrap_or(false);
 
             if is_null {
                 assert_eq!(
@@ -639,7 +646,11 @@ pub(crate) mod tests {
                     col.col_name
                 )
             }
-            assert_eq!(col.is_autoinc, is_autoinc, "is_autoinc {}.{}", table_name, col.col_name);
+            assert_eq!(
+                column_auto_inc, is_autoinc,
+                "is_autoinc {}.{}",
+                table_name, col.col_name
+            );
             assert_eq!(idx, idx_uniq, "idx_uniq {}.{}", table_name, col.col_name);
 
             Ok(())
