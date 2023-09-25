@@ -1,13 +1,13 @@
 use crate::prelude::*;
 use spacetimedb::db::datastore::locking_tx_datastore::MutTxId;
 use spacetimedb::db::relational_db::{open_db, RelationalDB};
-use spacetimedb_lib::sats::db::def::TableDef;
+use spacetimedb_lib::sats::db::def::{TableDef, TableId};
 use spacetimedb_lib::sats::product;
 use spacetimedb_lib::{AlgebraicType, AlgebraicValue, ProductType};
 
-type DbResult = (RelationalDB, TempDir, u32);
+type DbResult = (RelationalDB, TempDir, TableId);
 
-fn init_db(in_memory: bool, fsync: bool) -> ResultBench<(TempDir, u32)> {
+fn init_db(in_memory: bool, fsync: bool) -> ResultBench<(TempDir, TableId)> {
     let tmp_dir = TempDir::new("stdb_test")?;
     let stdb = open_db(tmp_dir.path(), in_memory, fsync)?;
     let mut tx = stdb.begin_tx();
@@ -32,7 +32,7 @@ fn build_db(in_memory: bool, fsync: bool) -> ResultBench<DbResult> {
     Ok((stdb, tmp_dir, table_id))
 }
 
-fn insert_row(db: &RelationalDB, tx: &mut MutTxId, table_id: u32, run: Runs) -> ResultBench<()> {
+fn insert_row(db: &RelationalDB, tx: &mut MutTxId, table_id: TableId, run: Runs) -> ResultBench<()> {
     for row in run.data() {
         db.insert(
             tx,

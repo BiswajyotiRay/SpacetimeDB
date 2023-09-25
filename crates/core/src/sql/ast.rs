@@ -15,7 +15,7 @@ use sqlparser::parser::Parser;
 use std::collections::HashMap;
 
 use crate::db::datastore::locking_tx_datastore::MutTxId;
-use crate::db::datastore::traits::{MutTxDatastore, TableId};
+use crate::db::datastore::traits::MutTxDatastore;
 use crate::db::relational_db::RelationalDB;
 use crate::error::{DBError, PlanError};
 use spacetimedb_sats::relation::{extract_table_field, FieldExpr, FieldName};
@@ -412,7 +412,7 @@ fn find_table(db: &RelationalDB, tx: &MutTxId, t: Table) -> Result<TableSchema, 
     let table_id = db
         .table_id_from_name(tx, &t.name)?
         .ok_or(PlanError::UnknownTable { table: t.name.clone() })?;
-    if !db.inner.table_id_exists(tx, &TableId(table_id)) {
+    if !db.inner.table_id_exists(tx, &table_id) {
         return Err(PlanError::UnknownTable { table: t.name });
     }
     db.schema_for_table(tx, table_id)
@@ -818,7 +818,7 @@ fn compile_create_table(table: Table, cols: Vec<SqlColumnDef>) -> Result<SqlAst,
                 &table.name,
                 &name,
                 attr,
-                NonEmpty::new(col_pos as u32),
+                NonEmpty::new(col_pos.into()),
             ));
         }
 

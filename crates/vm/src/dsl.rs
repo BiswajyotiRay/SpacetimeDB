@@ -3,6 +3,7 @@ use crate::expr::{Expr, QueryExpr, SourceExpr};
 use crate::operator::*;
 use spacetimedb_sats::algebraic_value::AlgebraicValue;
 use spacetimedb_sats::db::auth::{StAccess, StTableType};
+use spacetimedb_sats::db::def::TableId;
 use spacetimedb_sats::product_type::ProductType;
 use spacetimedb_sats::product_value::ProductValue;
 use spacetimedb_sats::relation::{DbTable, Header, MemTable};
@@ -37,7 +38,7 @@ where
 pub fn db_table_raw(
     head: ProductType,
     name: &str,
-    table_id: u32,
+    table_id: TableId,
     table_type: StTableType,
     table_access: StAccess,
 ) -> DbTable {
@@ -50,7 +51,7 @@ pub fn db_table_raw(
 }
 
 /// Create a [DbTable] of type [StTableType::User] and derive `StAccess::for_name(name)`.
-pub fn db_table(head: ProductType, name: &str, table_id: u32) -> DbTable {
+pub fn db_table(head: ProductType, name: &str, table_id: TableId) -> DbTable {
     db_table_raw(head, name, table_id, StTableType::User, StAccess::for_name(name))
 }
 

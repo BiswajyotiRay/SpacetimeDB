@@ -216,18 +216,18 @@ pub(crate) mod tests {
     fn test_select_catalog() -> ResultTest<()> {
         let (db, _, _tmp_dir) = create_data(1)?;
         let mut tx = db.begin_tx();
-        let schema = db.schema_for_table(&tx, ST_TABLES_ID.0).unwrap();
+        let schema = db.schema_for_table(&tx, ST_TABLES_ID).unwrap();
 
         let result = run_for_testing(
             &db,
             &mut tx,
-            &format!("SELECT * FROM {} WHERE table_id = {}", ST_TABLES_NAME, ST_TABLES_ID.0),
+            &format!("SELECT * FROM {} WHERE table_id = {}", ST_TABLES_NAME, ST_TABLES_ID),
         )?;
 
         assert_eq!(result.len(), 1, "Not return results");
         let result = result.first().unwrap().clone();
         let row = product!(
-            scalar(ST_TABLES_ID.0),
+            scalar(ST_TABLES_ID),
             scalar(ST_TABLES_NAME),
             scalar(StTableType::System.as_str()),
             scalar(StAccess::Public.as_str()),

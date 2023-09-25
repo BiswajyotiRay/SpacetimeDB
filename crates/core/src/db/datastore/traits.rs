@@ -1,53 +1,10 @@
 use crate::db::datastore::system_tables::{StColumnRow, StConstraintRow, StIndexRow, StSequenceRow, ST_TABLES_ID};
-use core::fmt;
 use spacetimedb_sats::db::def::*;
 use spacetimedb_sats::DataKey;
 use spacetimedb_sats::{AlgebraicValue, ProductType, ProductValue};
 use std::{ops::RangeBounds, sync::Arc};
 
 use super::{system_tables::StTableRow, Result};
-
-/// The `id` for [Sequence]
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct TableId(pub(crate) u32);
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct ColId(pub(crate) u32);
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct IndexId(pub(crate) u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SequenceId(pub(crate) u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ConstraintId(pub(crate) u32);
-
-impl From<IndexId> for AlgebraicValue {
-    fn from(value: IndexId) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<SequenceId> for AlgebraicValue {
-    fn from(value: SequenceId) -> Self {
-        value.0.into()
-    }
-}
-
-impl fmt::Display for SequenceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl TableId {
-    pub fn from_u32_for_testing(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-impl From<TableId> for AlgebraicValue {
-    fn from(value: TableId) -> Self {
-        value.0.into()
-    }
-}
 
 /// Operations in a transaction are either Inserts or Deletes.
 /// Inserts report the byte objects they inserted, to be persisted
@@ -167,7 +124,7 @@ pub trait MutTxDatastore: TxDatastore + MutTx {
         for data_ref in table_rows {
             let data = self.data_to_owned(data_ref);
             let row = StTableRow::try_from(data.view())?;
-            let table_id = TableId(row.table_id);
+            let table_id = row.table_id;
             tables.push(self.schema_for_table_mut_tx(tx, table_id)?);
         }
         Ok(tables)
@@ -196,6 +153,9 @@ pub trait MutTxDatastore: TxDatastore + MutTx {
 
     // Constraints
     fn drop_constraint_mut_tx(&self, tx: &mut Self::MutTxId, constraint_id: ConstraintId) -> super::Result<()>;
+    fn constraint_id_from_name(&self, tx: &Self::MutTxId, constraint_name: &str)
+        -> super::Result<Option<ConstraintId>>;
+
     // Data
     fn iter_mut_tx<'a>(&'a self, tx: &'a Self::MutTxId, table_id: TableId) -> Result<Self::Iter<'a>>;
     fn iter_by_col_range_mut_tx<'a, R: RangeBounds<AlgebraicValue>>(

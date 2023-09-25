@@ -85,7 +85,7 @@ impl CommitLog {
                     TxOp::Insert(_) => Operation::Insert,
                     TxOp::Delete => Operation::Delete,
                 },
-                set_id: record.table_id.0,
+                set_id: record.table_id.into(),
                 data_key: record.key,
             })
             .collect();

@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use crate::algebraic_value::AlgebraicValue;
 use crate::data_key::DataKey;
 use crate::db::auth::{StAccess, StTableType};
+use crate::db::def::TableId;
 use crate::db::error::RelationError;
 use crate::product_value::ProductValue;
 use crate::satn::Satn;
@@ -563,13 +564,13 @@ impl Relation for MemTable {
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub struct DbTable {
     pub head: Header,
-    pub table_id: u32,
+    pub table_id: TableId,
     pub table_type: StTableType,
     pub table_access: StAccess,
 }
 
 impl DbTable {
-    pub fn new(head: &Header, table_id: u32, table_type: StTableType, table_access: StAccess) -> Self {
+    pub fn new(head: &Header, table_id: TableId, table_type: StTableType, table_access: StAccess) -> Self {
         Self {
             head: head.clone(),
             table_id,

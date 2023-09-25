@@ -2,13 +2,17 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
+
+use base64::{engine::general_purpose::STANDARD as BASE_64_STD, Engine as _};
+use futures::{Future, FutureExt};
+use indexmap::IndexMap;
 use tokio::sync::oneshot;
 
 use super::host_controller::HostThreadpool;
 use super::{ArgsTuple, EnergyDiff, InvalidReducerArguments, ReducerArgs, ReducerCallResult, Timestamp};
 use crate::client::ClientConnectionSender;
 use crate::database_logger::LogLevel;
-use crate::db::datastore::traits::{TableId, TxData, TxOp};
+use crate::db::datastore::traits::{TxData, TxOp};
 use crate::db::relational_db::RelationalDB;
 use crate::error::DBError;
 use crate::hash::Hash;
@@ -18,10 +22,8 @@ use crate::protobuf::client_api::{table_row_operation, SubscriptionUpdate, Table
 use crate::subscription::module_subscription_actor::ModuleSubscriptionManager;
 use crate::util::lending_pool::{Closed, LendingPool, LentResource, PoolClosed};
 use crate::util::notify_once::NotifyOnce;
-use base64::{engine::general_purpose::STANDARD as BASE_64_STD, Engine as _};
-use futures::{Future, FutureExt};
-use indexmap::IndexMap;
 use spacetimedb_lib::{ReducerDef, TableDesc};
+use spacetimedb_sats::db::def::TableId;
 use spacetimedb_sats::relation::MemTable;
 use spacetimedb_sats::{ProductValue, Typespace, WithTypespace};
 
@@ -70,12 +72,12 @@ impl DatabaseUpdate {
             let table_name = if let Some(name) = table_name_map.get(&table_id) {
                 name.clone()
             } else {
-                let table_name = stdb.table_name_from_id(&tx, table_id.0).unwrap().unwrap();
+                let table_name = stdb.table_name_from_id(&tx, table_id).unwrap().unwrap();
                 table_name_map.insert(table_id, table_name.clone());
                 table_name
             };
             table_updates.push(DatabaseTableUpdate {
-                table_id: table_id.0,
+                table_id,
                 table_name,
                 ops: table_row_operations,
             });
@@ -91,7 +93,7 @@ impl DatabaseUpdate {
                 .tables
                 .into_iter()
                 .map(|table| TableUpdate {
-                    table_id: table.table_id,
+                    table_id: table.table_id.into(),
                     table_name: table.table_name,
                     table_row_operations: table
                         .ops
@@ -123,7 +125,7 @@ impl DatabaseUpdate {
                 .tables
                 .into_iter()
                 .map(|table| TableUpdateJson {
-                    table_id: table.table_id,
+                    table_id: table.table_id.into(),
                     table_name: table.table_name,
                     table_row_operations: table
                         .ops
@@ -149,7 +151,7 @@ impl DatabaseUpdate {
 
 #[derive(Debug, Clone)]
 pub struct DatabaseTableUpdate {
-    pub table_id: u32,
+    pub table_id: TableId,
     pub table_name: String,
     pub ops: Vec<TableOp>,
 }

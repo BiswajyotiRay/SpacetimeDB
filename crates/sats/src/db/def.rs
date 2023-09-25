@@ -1,16 +1,94 @@
 use crate::db::auth::{StAccess, StTableType};
 use crate::product_value::InvalidFieldError;
 use crate::relation::{DbTable, FieldName, FieldOnly, Header, TableField};
-use crate::{de, ser};
+use crate::{de, ser, AlgebraicValue};
 use crate::{AlgebraicType, ProductType, ProductTypeElement};
 use derive_more::Display;
 use std::collections::HashMap;
+use std::fmt;
 
 use crate::db::error::{DefType, SchemaError};
 use crate::de::BasicVecVisitor;
 use crate::ser::SerializeArray;
 use itertools::Itertools;
 use nonempty::NonEmpty;
+
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct TableId(pub u32);
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct ColId(pub(crate) u32);
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct IndexId(pub(crate) u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SequenceId(pub(crate) u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct ConstraintId(pub(crate) u32);
+
+macro_rules! system_id {
+    ($name:ident) => {
+        impl ser::Serialize for $name {
+            fn serialize<S: ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_u32(self.0)
+            }
+        }
+
+        impl<'de> de::Deserialize<'de> for $name {
+            fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                deserializer.deserialize_u32().map(|x| Self(x))
+            }
+        }
+        impl From<$name> for AlgebraicValue {
+            fn from(value: $name) -> Self {
+                value.0.into()
+            }
+        }
+        impl From<i32> for $name {
+            fn from(value: i32) -> Self {
+                Self(value as u32)
+            }
+        }
+        impl From<u32> for $name {
+            fn from(value: u32) -> Self {
+                Self(value)
+            }
+        }
+        impl From<$name> for usize {
+            fn from(value: $name) -> Self {
+                value.0 as usize
+            }
+        }
+        impl From<$name> for u32 {
+            fn from(value: $name) -> Self {
+                value.0
+            }
+        }
+        impl From<usize> for $name {
+            fn from(value: usize) -> Self {
+                Self(value as u32)
+            }
+        }
+        impl From<u8> for $name {
+            fn from(value: u8) -> Self {
+                Self(value as u32)
+            }
+        }
+        impl From<$name> for NonEmpty<$name> {
+            fn from(value: $name) -> Self {
+                NonEmpty::new(value)
+            }
+        }
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+    };
+}
+system_id!(TableId);
+system_id!(ColId);
+system_id!(SequenceId);
+system_id!(IndexId);
+system_id!(ConstraintId);
 
 /// The default preallocation amount for sequences.
 pub const SEQUENCE_PREALLOCATION_AMOUNT: i128 = 4_096;
@@ -187,14 +265,14 @@ impl ser::Serialize for Constraints {
     }
 }
 
-impl<'de> de::Deserialize<'de> for NonEmpty<u32> {
+impl<'de, T: de::Deserialize<'de> + Clone> de::Deserialize<'de> for NonEmpty<T> {
     fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let arr: Vec<u32> = deserializer.deserialize_array(BasicVecVisitor)?;
+        let arr: Vec<T> = deserializer.deserialize_array(BasicVecVisitor)?;
         NonEmpty::from_slice(&arr).ok_or_else(|| de::Error::custom("invalid NonEmpty<u32>"))
     }
 }
 
-impl ser::Serialize for NonEmpty<u32> {
+impl<T: ser::Serialize> ser::Serialize for NonEmpty<T> {
     fn serialize<S: ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut arr = serializer.serialize_array(self.len())?;
         for x in self {
@@ -208,16 +286,23 @@ impl ser::Serialize for NonEmpty<u32> {
 pub trait SystemField {
     fn to_field_id(&self) -> u32;
     fn to_field_name(&self) -> String;
+    fn to_field_name_str(&self) -> &'static str;
+}
+
+impl<T: SystemField> From<T> for ColId {
+    fn from(value: T) -> Self {
+        ColId(value.to_field_id())
+    }
 }
 
 /// Represents a schema definition for a database sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SequenceSchema {
-    pub sequence_id: u32,
+    pub sequence_id: SequenceId,
     pub sequence_name: String,
-    pub table_id: u32,
+    pub table_id: TableId,
     /// The position of the column associated with this sequence.
-    pub col_pos: u32,
+    pub col_pos: ColId,
     pub increment: i128,
     pub start: i128,
     pub min_value: i128,
@@ -239,14 +324,14 @@ impl SequenceSchema {
     /// use spacetimedb_sats::db::def::*;
     ///
     /// let sequence_def = SequenceDef::for_column("my_table", "my_sequence", 1);
-    /// let schema = SequenceSchema::from_def(42, sequence_def);
+    /// let schema = SequenceSchema::from_def(42.into(), sequence_def);
     ///
     /// assert_eq!(schema.sequence_name, "seq_my_table_my_sequence");
     /// assert_eq!(schema.table_id, 42);
     /// ```
-    pub fn from_def(table_id: u32, sequence: SequenceDef) -> Self {
+    pub fn from_def(table_id: TableId, sequence: SequenceDef) -> Self {
         Self {
-            sequence_id: 0, // Will be replaced later when created
+            sequence_id: SequenceId(0), // Will be replaced later when created
             sequence_name: sequence.sequence_name.trim().to_string(),
             table_id,
             col_pos: sequence.col_pos,
@@ -265,7 +350,7 @@ impl SequenceSchema {
 pub struct SequenceDef {
     pub sequence_name: String,
     /// The position of the column associated with this sequence.
-    pub col_pos: u32,
+    pub col_pos: ColId,
     pub increment: i128,
     pub start: Option<i128>,
     pub min_value: Option<i128>,
@@ -290,7 +375,7 @@ impl SequenceDef {
     /// let sequence_def = SequenceDef::for_column("my_table", "my_sequence", 1);
     /// assert_eq!(sequence_def.sequence_name, "seq_my_table_my_sequence");
     /// ```
-    pub fn for_column(table: &str, seq_name: &str, col_pos: u32) -> Self {
+    pub fn for_column(table: &str, seq_name: &str, col_pos: ColId) -> Self {
         SequenceDef {
             sequence_name: format!("seq_{}_{}", table, seq_name),
             col_pos,
@@ -325,19 +410,19 @@ pub struct IndexSplit<'a> {
 /// A struct representing the schema of a database index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexSchema {
-    pub index_id: u32,
-    pub table_id: u32,
+    pub index_id: IndexId,
+    pub table_id: TableId,
     pub index_type: IndexType,
     pub index_name: String,
     pub is_unique: bool,
-    pub columns: NonEmpty<u32>,
+    pub columns: NonEmpty<ColId>,
 }
 
 impl IndexSchema {
     /// Constructs an [IndexSchema] from a given [IndexDef] and `table_id`.
-    pub fn from_def(table_id: u32, index: IndexDef) -> Self {
+    pub fn from_def(table_id: TableId, index: IndexDef) -> Self {
         IndexSchema {
-            index_id: 0, // Set to 0 as it may be assigned later.
+            index_id: IndexId(0), // Set to 0 as it may be assigned later.
             table_id,
             index_type: index.index_type,
             index_name: index.index_name.trim().to_string(),
@@ -384,7 +469,7 @@ pub struct IndexDef {
     pub is_unique: bool,
     pub index_type: IndexType,
     /// List of column positions that compose the index.
-    pub columns: NonEmpty<u32>,
+    pub columns: NonEmpty<ColId>,
 }
 
 impl IndexDef {
@@ -398,7 +483,7 @@ impl IndexDef {
     /// * `columns`: List of column positions that compose the index.
     /// * `is_unique`: Indicates whether the index enforces uniqueness.
     /// * `ty`: Indicates the [IndexType].
-    pub fn new(index_name: &str, columns: NonEmpty<u32>, is_unique: bool, ty: IndexType) -> Self {
+    pub fn new(index_name: &str, columns: NonEmpty<ColId>, is_unique: bool, ty: IndexType) -> Self {
         Self {
             columns,
             index_name: index_name.into(),
@@ -420,7 +505,7 @@ impl IndexDef {
     /// let index_def = IndexDef::for_column("my_table", "test", NonEmpty::new(1u32), true);
     /// assert_eq!(index_def.index_name, "idx_my_table_test_unique");
     /// ```
-    pub fn for_column(table: &str, index_name: &str, columns: NonEmpty<u32>, is_unique: bool) -> Self {
+    pub fn for_column(table: &str, index_name: &str, columns: NonEmpty<ColId>, is_unique: bool) -> Self {
         let unique = if is_unique { "unique" } else { "non_unique" };
 
         // Removes the auto-generated suffix from the index name.
@@ -442,7 +527,7 @@ impl IndexDef {
         Self::for_column(
             table,
             &field.to_field_name(),
-            NonEmpty::new(field.to_field_id()),
+            NonEmpty::new(field.to_field_id().into()),
             is_unique,
         )
     }
@@ -462,9 +547,9 @@ impl From<IndexSchema> for IndexDef {
 /// A struct representing the schema of a database column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnSchema {
-    pub table_id: u32,
+    pub table_id: TableId,
     /// Position of the column within the table.
-    pub col_pos: u32,
+    pub col_pos: ColId,
     pub col_name: String,
     pub col_type: AlgebraicType,
 }
@@ -477,7 +562,7 @@ impl ColumnSchema {
     /// * `table_id`: Identifier of the table to which the column belongs.
     /// * `col_pos`: Position of the column within the table.
     /// * `column`: The `ColumnDef` containing column information.
-    pub fn from_def(table_id: u32, col_pos: u32, column: ColumnDef) -> Self {
+    pub fn from_def(table_id: TableId, col_pos: ColId, column: ColumnDef) -> Self {
         ColumnSchema {
             table_id,
             col_pos,
@@ -585,11 +670,11 @@ impl From<ColumnSchema> for ColumnDef {
 /// name, type (kind), the table it belongs to, and the columns it is associated with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConstraintSchema {
-    pub constraint_id: u32,
+    pub constraint_id: ConstraintId,
     pub constraint_name: String,
     pub constraints: Constraints,
-    pub table_id: u32,
-    pub columns: NonEmpty<u32>,
+    pub table_id: TableId,
+    pub columns: NonEmpty<ColId>,
 }
 
 impl ConstraintSchema {
@@ -599,9 +684,9 @@ impl ConstraintSchema {
     ///
     /// * `table_id`: Identifier of the table to which the constraint belongs.
     /// * `constraint`: The `ConstraintDef` containing constraint information.
-    pub fn from_def(table_id: u32, constraint: ConstraintDef) -> Self {
+    pub fn from_def(table_id: TableId, constraint: ConstraintDef) -> Self {
         ConstraintSchema {
-            constraint_id: 0, // Set to 0 as it may be assigned later.
+            constraint_id: ConstraintId(0), // Set to 0 as it may be assigned later.
             constraint_name: constraint.constraint_name.trim().to_string(),
             constraints: constraint.kind,
             table_id,
@@ -617,7 +702,7 @@ pub struct ConstraintDef {
     pub constraint_name: String,
     pub kind: Constraints,
     /// List of column positions associated with the constraint.
-    pub columns: NonEmpty<u32>,
+    pub columns: NonEmpty<ColId>,
 }
 
 impl ConstraintDef {
@@ -628,7 +713,7 @@ impl ConstraintDef {
     /// * `constraint_name`: The name of the constraint.
     /// * `kind`: The type (kind) of the constraint.
     /// * `columns`: List of column positions associated with the constraint.
-    pub fn new(constraint_name: &str, kind: Constraints, columns: NonEmpty<u32>) -> Self {
+    pub fn new(constraint_name: &str, kind: Constraints, columns: NonEmpty<ColId>) -> Self {
         Self {
             constraint_name: constraint_name.into(), // Convert the provided name to a `String`.
             kind,
@@ -656,7 +741,7 @@ impl ConstraintDef {
     /// let constraint_def = ConstraintDef::for_column("my_table", "test",Constraints::identity(), NonEmpty::new(1u32));
     /// assert_eq!(constraint_def.constraint_name, "ct_my_table_test_identity");
     /// ```
-    pub fn for_column(table: &str, column_name: &str, kind: Constraints, columns: NonEmpty<u32>) -> Self {
+    pub fn for_column(table: &str, column_name: &str, kind: Constraints, columns: NonEmpty<ColId>) -> Self {
         let kind_name = format!("{:?}", kind.kind()).to_lowercase();
         Self {
             constraint_name: format!("ct_{table}_{column_name}_{kind_name}"),
@@ -676,7 +761,12 @@ impl ConstraintDef {
     /// * `kind`: The type (kind) of the constraint.
     ///
     pub fn for_sys_column<Field: SystemField>(table: &str, field: Field, kind: Constraints) -> Self {
-        Self::for_column(table, &field.to_field_name(), kind, NonEmpty::new(field.to_field_id()))
+        Self::for_column(
+            table,
+            &field.to_field_name(),
+            kind,
+            NonEmpty::new(field.to_field_id().into()),
+        )
     }
 }
 
@@ -696,7 +786,7 @@ impl From<ConstraintSchema> for ConstraintDef {
 /// name, columns, indexes, constraints, sequences, type, and access rights.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableSchema {
-    pub table_id: u32,
+    pub table_id: TableId,
     pub table_name: String,
     pub columns: Vec<ColumnSchema>,
     pub indexes: Vec<IndexSchema>,
@@ -739,19 +829,21 @@ impl TableSchema {
     }
 
     /// Project the fields from the supplied `indexes`.
-    pub fn project(&self, indexes: impl Iterator<Item = usize>) -> Result<Vec<&ColumnSchema>, InvalidFieldError> {
+    pub fn project(&self, indexes: impl Iterator<Item = ColId>) -> Result<Vec<&ColumnSchema>, InvalidFieldError> {
         indexes
-            .map(|col_pos| {
-                self.get_column(col_pos)
-                    .ok_or(InvalidFieldError { col_pos, name: None })
+            .map(|index| {
+                self.get_column(index.0 as usize).ok_or(InvalidFieldError {
+                    col_pos: index,
+                    name: None,
+                })
             })
             .collect()
     }
 
     /// Utility for project the fields from the supplied `indexes` that is a [NonEmpty<u32>],
     /// used for when the list of field indexes have at least one value.
-    pub fn project_not_empty(&self, indexes: &NonEmpty<u32>) -> Result<Vec<&ColumnSchema>, InvalidFieldError> {
-        self.project(indexes.iter().map(|&x| x as usize))
+    pub fn project_not_empty(&self, indexes: NonEmpty<ColId>) -> Result<Vec<&ColumnSchema>, InvalidFieldError> {
+        self.project(indexes.into_iter())
     }
 
     pub fn get_row_type(&self) -> ProductType {
@@ -772,7 +864,7 @@ impl TableSchema {
     ///
     /// - `table_id`: The unique identifier for the table.
     /// - `schema`: The `TableDef` containing the schema information.
-    pub fn from_def(table_id: u32, schema: TableDef) -> Self {
+    pub fn from_def(table_id: TableId, schema: TableDef) -> Self {
         let indexes = schema.generated_indexes().collect::<Vec<_>>();
         let sequences = schema.generated_sequences().collect::<Vec<_>>();
         TableSchema {
@@ -782,7 +874,7 @@ impl TableSchema {
                 .columns
                 .into_iter()
                 .enumerate()
-                .map(|(col_pos, x)| ColumnSchema::from_def(table_id, col_pos as u32, x))
+                .map(|(col_pos, x)| ColumnSchema::from_def(table_id, col_pos.into(), x))
                 .collect(),
             indexes: schema
                 .indexes
@@ -812,15 +904,15 @@ impl TableSchema {
         }
     }
 
-    pub fn column_constraints_iter(&self) -> impl Iterator<Item = (NonEmpty<u32>, &Constraints)> {
+    pub fn column_constraints_iter(&self) -> impl Iterator<Item = (NonEmpty<ColId>, &Constraints)> {
         self.constraints.iter().map(|x| (x.columns.clone(), &x.constraints))
     }
 
     /// Resolves the constraints per each column. If the column don't have one, auto-generate [Constraints::unset()].
     ///
     /// This guarantee all columns can be queried for it constraints.
-    pub fn column_constraints(&self) -> HashMap<NonEmpty<u32>, Constraints> {
-        let mut constraints: HashMap<NonEmpty<u32>, Constraints> =
+    pub fn column_constraints(&self) -> HashMap<NonEmpty<ColId>, Constraints> {
+        let mut constraints: HashMap<NonEmpty<ColId>, Constraints> =
             self.column_constraints_iter().map(|(col, ct)| (col, *ct)).collect();
 
         for col in &self.columns {
@@ -865,7 +957,7 @@ impl TableSchema {
 
         if self.table_name.is_empty() {
             return Err(SchemaError::EmptyTableName {
-                table_id: self.table_id,
+                table_id: self.table_id.0,
             });
         }
 
@@ -873,7 +965,7 @@ impl TableSchema {
             return Err(SchemaError::EmptyName {
                 table: self.table_name.clone(),
                 ty: DefType::Column,
-                id: empty.col_pos,
+                id: empty.col_pos.0,
             });
         }
 
@@ -881,7 +973,7 @@ impl TableSchema {
             return Err(SchemaError::EmptyName {
                 table: self.table_name.clone(),
                 ty: DefType::Index,
-                id: empty.index_id,
+                id: empty.index_id.0,
             });
         }
 
@@ -889,7 +981,7 @@ impl TableSchema {
             return Err(SchemaError::EmptyName {
                 table: self.table_name.clone(),
                 ty: DefType::Constraint,
-                id: empty.constraint_id,
+                id: empty.constraint_id.0,
             });
         }
 
@@ -897,7 +989,7 @@ impl TableSchema {
             return Err(SchemaError::EmptyName {
                 table: self.table_name.clone(),
                 ty: DefType::Sequence,
-                id: empty.sequence_id,
+                id: empty.sequence_id.0,
             });
         }
 
@@ -907,18 +999,17 @@ impl TableSchema {
             .iter()
             .group_by(|&seq| seq.col_pos)
             .into_iter()
-            .filter_map(|(key, group)| {
+            .find_map(|(key, group)| {
                 let count = group.count();
                 if count > 1 {
                     Some(SchemaError::OneAutoInc {
                         table: self.table_name.clone(),
-                        field: self.columns[key as usize].col_name.clone(),
+                        field: self.columns[key.0 as usize].col_name.clone(),
                     })
                 } else {
                     None
                 }
             })
-            .next()
         {
             return Err(err);
         }
@@ -1021,7 +1112,7 @@ impl TableDef {
     }
 
     /// Add a constraint to the table and return a new `TableDef` instance with the added constraint.
-    pub fn add_constraint(self, column_name: &str, kind: Constraints, columns: NonEmpty<u32>) -> Self {
+    pub fn add_constraint(self, column_name: &str, kind: Constraints, columns: NonEmpty<ColId>) -> Self {
         let mut x = self;
         x.constraints
             .push(ConstraintDef::for_column(&x.table_name, column_name, kind, columns));
@@ -1095,7 +1186,7 @@ impl TableDef {
     }
 
     /// Create a new [TableSchema] from [Self] and a `table id`.
-    pub fn into_schema(self, table_id: u32) -> TableSchema {
+    pub fn into_schema(self, table_id: TableId) -> TableSchema {
         TableSchema::from_def(table_id, self)
     }
 

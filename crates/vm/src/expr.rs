@@ -13,7 +13,7 @@ use spacetimedb_lib::Identity;
 use spacetimedb_sats::algebraic_type::AlgebraicType;
 use spacetimedb_sats::algebraic_value::AlgebraicValue;
 use spacetimedb_sats::db::auth::{StAccess, StTableType};
-use spacetimedb_sats::db::def::{TableDef, TableSchema};
+use spacetimedb_sats::db::def::{ColId, TableDef, TableSchema};
 use spacetimedb_sats::db::error::AuthError;
 use spacetimedb_sats::relation::{
     DbTable, FieldExpr, FieldName, Header, MemTable, RelValueRef, Relation, RowCount, Table,
@@ -223,7 +223,7 @@ impl From<IndexScan> for ColumnOp {
         let columns = value.columns;
         assert_eq!(columns.len(), 1, "Not yet supported multi-column predicates");
 
-        let field = table.head.fields[columns.head as usize].field.clone();
+        let field = table.head.fields[usize::from(columns.head)].field.clone();
         match (value.lower_bound, value.upper_bound) {
             // Inclusive lower bound => field >= value
             (Bound::Included(value), Bound::Unbounded) => ColumnOp::Cmp {
@@ -427,7 +427,7 @@ pub enum CrudExpr {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct IndexScan {
     pub table: DbTable,
-    pub columns: NonEmpty<u32>,
+    pub columns: NonEmpty<ColId>,
     pub lower_bound: Bound<AlgebraicValue>,
     pub upper_bound: Bound<AlgebraicValue>,
 }
@@ -532,7 +532,7 @@ impl QueryExpr {
     // Generate an index scan for an equality predicate if this is the first operator.
     // Otherwise generate a select.
     // TODO: Replace these methods with a proper query optimization pass.
-    pub fn with_index_eq(mut self, table: DbTable, columns: NonEmpty<u32>, value: AlgebraicValue) -> Self {
+    pub fn with_index_eq(mut self, table: DbTable, columns: NonEmpty<ColId>, value: AlgebraicValue) -> Self {
         // if this is the first operator in the list, generate index scan
         let Some(query) = self.query.pop() else {
             self.query.push(Query::IndexScan(IndexScan {
@@ -607,7 +607,7 @@ impl QueryExpr {
     pub fn with_index_lower_bound(
         mut self,
         table: DbTable,
-        columns: NonEmpty<u32>,
+        columns: NonEmpty<ColId>,
         value: AlgebraicValue,
         inclusive: bool,
     ) -> Self {
@@ -715,7 +715,7 @@ impl QueryExpr {
     pub fn with_index_upper_bound(
         mut self,
         table: DbTable,
-        columns: NonEmpty<u32>,
+        columns: NonEmpty<ColId>,
         value: AlgebraicValue,
         inclusive: bool,
     ) -> Self {

@@ -154,7 +154,7 @@ pub fn autogen_python_table(ctx: &GenCtx, table: &TableDesc) -> String {
         ctx,
         &table.schema.clone().table_name,
         tuple,
-        Some(table.schema.clone().into_schema(0)),
+        Some(table.schema.clone().into_schema(0.into())),
     )
 }
 
@@ -243,7 +243,7 @@ fn autogen_python_product_table_common(
         if let Some(schema) = schema {
             // if this table has a primary key add it to the codegen
             if let Some(primary_key) = schema.pk().map(|idx| {
-                let field_name = product_type.elements[idx.col_pos as usize]
+                let field_name = product_type.elements[usize::from(idx.col_pos)]
                     .name
                     .as_ref()
                     .expect("autogen'd tuples should have field names")
@@ -285,7 +285,7 @@ fn autogen_python_product_table_common(
 
             let constraints = schema.column_constraints();
             for (idx, field) in product_type.elements.iter().enumerate() {
-                let attr = constraints[&NonEmpty::new(idx as u32)];
+                let attr = constraints[&NonEmpty::new(idx.into())];
 
                 let field_type = &field.algebraic_type;
 

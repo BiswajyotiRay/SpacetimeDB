@@ -338,7 +338,7 @@ pub fn autogen_rust_table(ctx: &GenCtx, table: &TableDesc) -> String {
     let table = table
         .schema
         .clone()
-        .into_schema(0)
+        .into_schema(0.into())
         .validated()
         .expect("Fail to generate table");
     print_impl_tabletype(ctx, out, &table);
@@ -402,7 +402,7 @@ fn begin_rust_struct_def_shared(ctx: &GenCtx, out: &mut Indenter, name: &str, el
 }
 
 fn find_primary_key_column_index(table: &TableSchema) -> Option<usize> {
-    table.pk().map(|x| x.col_pos as usize)
+    table.pk().map(|x| x.col_pos.into())
 }
 
 fn print_impl_tabletype(ctx: &GenCtx, out: &mut Indenter, table: &TableSchema) {
@@ -858,7 +858,7 @@ fn print_handle_table_update_defn(out: &mut Indenter, items: &[GenItem]) {
                 "match table_name {",
                 |out| {
                     for table in iter_table_items(items) {
-                        let table = table.schema.clone().into_schema(0).validated().unwrap();
+                        let table = table.schema.clone().into_schema(0.into()).validated().unwrap();
                         writeln!(
                             out,
                             "{:?} => client_cache.{}::<{}::{}>(callbacks, table_update),",

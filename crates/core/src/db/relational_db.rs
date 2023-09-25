@@ -1,11 +1,10 @@
 use super::commit_log::CommitLog;
 use super::datastore::locking_tx_datastore::{Data, DataRef, Iter, IterByColEq, IterByColRange, MutTxId, RowId};
-use super::datastore::traits::{ColId, DataRow, IndexId, MutTx, MutTxDatastore, SequenceId, TableId, TxData};
+use super::datastore::traits::{DataRow, MutTx, MutTxDatastore, TxData};
 use super::message_log::MessageLog;
 use super::ostorage::memory_object_db::MemoryObjectDB;
 use super::relational_operators::Relation;
 use crate::address::Address;
-use crate::db::datastore::traits::ConstraintId;
 use crate::db::db_metrics::{RDB_DELETE_BY_REL_TIME, RDB_DROP_TABLE_TIME, RDB_INSERT_TIME, RDB_ITER_TIME};
 use crate::db::messages::commit::Commit;
 use crate::db::ostorage::hashmap_object_db::HashMapObjectDB;
@@ -180,13 +179,13 @@ impl RelationalDB {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn schema_for_table(&self, tx: &MutTxId, table_id: u32) -> Result<TableSchema, DBError> {
-        self.inner.schema_for_table_mut_tx(tx, TableId(table_id))
+    pub fn schema_for_table(&self, tx: &MutTxId, table_id: TableId) -> Result<TableSchema, DBError> {
+        self.inner.schema_for_table_mut_tx(tx, table_id)
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn row_schema_for_table(&self, tx: &MutTxId, table_id: u32) -> Result<ProductType, DBError> {
-        self.inner.row_type_for_table_mut_tx(tx, TableId(table_id))
+    pub fn row_schema_for_table(&self, tx: &MutTxId, table_id: TableId) -> Result<ProductType, DBError> {
+        self.inner.row_type_for_table_mut_tx(tx, table_id)
     }
 
     pub fn get_all_tables(&self, tx: &MutTxId) -> Result<Vec<TableSchema>, DBError> {
@@ -194,20 +193,20 @@ impl RelationalDB {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn schema_for_column(&self, tx: &MutTxId, table_id: u32, col_id: u32) -> Result<AlgebraicType, DBError> {
+    pub fn schema_for_column(&self, tx: &MutTxId, table_id: TableId, col_id: ColId) -> Result<AlgebraicType, DBError> {
         let schema = self.row_schema_for_table(tx, table_id)?;
         let col = schema
             .elements
-            .get(col_id as usize)
-            .ok_or(TableError::ColumnNotFound(col_id))?;
+            .get(usize::from(col_id))
+            .ok_or(TableError::ColumnNotFound(col_id.into()))?;
         Ok(col.algebraic_type.clone())
     }
 
     pub fn decode_column(
         &self,
         tx: &MutTxId,
-        table_id: u32,
-        col_id: u32,
+        table_id: TableId,
+        col_id: ColId,
         bytes: &[u8],
     ) -> Result<AlgebraicValue, DBError> {
         let schema = self.schema_for_column(tx, table_id, col_id)?;
@@ -349,13 +348,13 @@ impl RelationalDB {
 }
 
 impl RelationalDB {
-    pub fn create_table<T: Into<TableDef>>(&self, tx: &mut MutTxId, schema: T) -> Result<u32, DBError> {
-        self.inner.create_table_mut_tx(tx, schema.into()).map(|TableId(id)| id)
+    pub fn create_table<T: Into<TableDef>>(&self, tx: &mut MutTxId, schema: T) -> Result<TableId, DBError> {
+        self.inner.create_table_mut_tx(tx, schema.into())
     }
 
-    pub fn drop_table(&self, tx: &mut MutTxId, table_id: u32) -> Result<(), DBError> {
-        measure(&RDB_DROP_TABLE_TIME, table_id);
-        self.inner.drop_table_mut_tx(tx, TableId(table_id))
+    pub fn drop_table(&self, tx: &mut MutTxId, table_id: TableId) -> Result<(), DBError> {
+        measure(&RDB_DROP_TABLE_TIME, table_id.into());
+        self.inner.drop_table_mut_tx(tx, table_id)
     }
 
     /// Rename a table.
@@ -364,30 +363,28 @@ impl RelationalDB {
     /// relatively cheap operation which only modifies the system tables.
     ///
     /// If the table is not found or is a system table, an error is returned.
-    pub fn rename_table(&self, tx: &mut MutTxId, table_id: u32, new_name: &str) -> Result<(), DBError> {
-        self.inner.rename_table_mut_tx(tx, TableId(table_id), new_name)
+    pub fn rename_table(&self, tx: &mut MutTxId, table_id: TableId, new_name: &str) -> Result<(), DBError> {
+        self.inner.rename_table_mut_tx(tx, table_id, new_name)
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn table_id_from_name(&self, tx: &MutTxId, table_name: &str) -> Result<Option<u32>, DBError> {
-        self.inner
-            .table_id_from_name_mut_tx(tx, table_name)
-            .map(|x| x.map(|x| x.0))
+    pub fn table_id_from_name(&self, tx: &MutTxId, table_name: &str) -> Result<Option<TableId>, DBError> {
+        self.inner.table_id_from_name_mut_tx(tx, table_name)
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn table_name_from_id(&self, tx: &MutTxId, table_id: u32) -> Result<Option<String>, DBError> {
-        self.inner.table_name_from_id_mut_tx(tx, TableId(table_id))
+    pub fn table_name_from_id(&self, tx: &MutTxId, table_id: TableId) -> Result<Option<String>, DBError> {
+        self.inner.table_name_from_id_mut_tx(tx, table_id)
     }
 
     #[tracing::instrument(skip_all)]
     pub fn column_constraints(
         &self,
         tx: &mut MutTxId,
-        table_id: u32,
-        cols: &NonEmpty<u32>,
+        table_id: TableId,
+        cols: &NonEmpty<ColId>,
     ) -> Result<Constraints, DBError> {
-        let table = self.inner.schema_for_table_mut_tx(tx, TableId(table_id))?;
+        let table = self.inner.schema_for_table_mut_tx(tx, table_id)?;
 
         let unique_index = table.indexes.iter().find(|x| &x.columns == cols).map(|x| x.is_unique);
         let mut attr = ConstraintFlags::UNSET;
@@ -403,24 +400,22 @@ impl RelationalDB {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn index_id_from_name(&self, tx: &MutTxId, index_name: &str) -> Result<Option<u32>, DBError> {
-        self.inner
-            .index_id_from_name_mut_tx(tx, index_name)
-            .map(|x| x.map(|x| x.0))
+    pub fn index_id_from_name(&self, tx: &MutTxId, index_name: &str) -> Result<Option<IndexId>, DBError> {
+        self.inner.index_id_from_name_mut_tx(tx, index_name)
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn sequence_id_from_name(&self, tx: &MutTxId, sequence_name: &str) -> Result<Option<u32>, DBError> {
-        self.inner
-            .sequence_id_from_name_mut_tx(tx, sequence_name)
-            .map(|x| x.map(|x| x.0))
+    pub fn sequence_id_from_name(&self, tx: &MutTxId, sequence_name: &str) -> Result<Option<SequenceId>, DBError> {
+        self.inner.sequence_id_from_name_mut_tx(tx, sequence_name)
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn constraint_id_from_name(&self, tx: &MutTxId, constraint_name: &str) -> Result<Option<u32>, DBError> {
-        self.inner
-            .sequence_id_from_name_mut_tx(tx, constraint_name)
-            .map(|x| x.map(|x| x.0))
+    pub fn constraint_id_from_name(
+        &self,
+        tx: &MutTxId,
+        constraint_name: &str,
+    ) -> Result<Option<ConstraintId>, DBError> {
+        self.inner.constraint_id_from_name(tx, constraint_name)
     }
 
     /// Adds the [index::BTreeIndex] into the [ST_INDEXES_NAME] table
@@ -442,9 +437,9 @@ impl RelationalDB {
     /// Returns an iterator,
     /// yielding every row in the table identified by `table_id`.
     #[tracing::instrument(skip(self, tx))]
-    pub fn iter<'a>(&'a self, tx: &'a MutTxId, table_id: u32) -> Result<Iter<'a>, DBError> {
-        measure(&RDB_ITER_TIME, table_id);
-        self.inner.iter_mut_tx(tx, TableId(table_id))
+    pub fn iter<'a>(&'a self, tx: &'a MutTxId, table_id: TableId) -> Result<Iter<'a>, DBError> {
+        measure(&RDB_ITER_TIME, table_id.into());
+        self.inner.iter_mut_tx(tx, table_id)
     }
 
     /// Returns an iterator,
@@ -456,12 +451,11 @@ impl RelationalDB {
     pub fn iter_by_col_eq<'a>(
         &'a self,
         tx: &'a MutTxId,
-        table_id: u32,
-        col_id: u32,
+        table_id: TableId,
+        col_id: ColId,
         value: AlgebraicValue,
     ) -> Result<IterByColEq<'a>, DBError> {
-        self.inner
-            .iter_by_col_eq_mut_tx(tx, TableId(table_id), ColId(col_id), value)
+        self.inner.iter_by_col_eq_mut_tx(tx, table_id, col_id, value)
     }
 
     /// Returns an iterator,
@@ -472,28 +466,27 @@ impl RelationalDB {
     pub fn iter_by_col_range<'a, R: RangeBounds<AlgebraicValue>>(
         &'a self,
         tx: &'a MutTxId,
-        table_id: u32,
-        col_id: u32,
+        table_id: TableId,
+        col_id: ColId,
         range: R,
     ) -> Result<IterByColRange<'a, R>, DBError> {
-        self.inner
-            .iter_by_col_range_mut_tx(tx, TableId(table_id), ColId(col_id), range)
+        self.inner.iter_by_col_range_mut_tx(tx, table_id, col_id, range)
     }
 
     #[tracing::instrument(skip(self, tx))]
-    pub fn insert(&self, tx: &mut MutTxId, table_id: u32, row: ProductValue) -> Result<ProductValue, DBError> {
-        measure(&RDB_INSERT_TIME, table_id);
-        self.inner.insert_mut_tx(tx, TableId(table_id), row)
+    pub fn insert(&self, tx: &mut MutTxId, table_id: TableId, row: ProductValue) -> Result<ProductValue, DBError> {
+        measure(&RDB_INSERT_TIME, table_id.into());
+        self.inner.insert_mut_tx(tx, table_id, row)
     }
 
     #[tracing::instrument(skip_all)]
     pub fn insert_bytes_as_row(
         &self,
         tx: &mut MutTxId,
-        table_id: u32,
+        table_id: TableId,
         row_bytes: &[u8],
     ) -> Result<ProductValue, DBError> {
-        let ty = self.inner.row_type_for_table_mut_tx(tx, TableId(table_id))?;
+        let ty = self.inner.row_type_for_table_mut_tx(tx, table_id)?;
         let row = ProductValue::decode(&ty, &mut &row_bytes[..])?;
         self.insert(tx, table_id, row)
     }
@@ -502,7 +495,7 @@ impl RelationalDB {
     #[tracing::instrument(skip_all)]
     pub fn delete_pk(&self, tx: &mut MutTxId, table_id: u32, row_id: DataKey) -> Result<bool, DBError> {
         measure(&RDB_DELETE_PK_TIME, table_id);
-        self.inner.delete_row_mut_tx(tx, TableId(table_id), RowId(row_id))
+        self.inner.delete_row_mut_tx(tx, table_id, RowId(row_id))
     }
     */
 
@@ -510,11 +503,11 @@ impl RelationalDB {
     pub fn delete_by_rel<R: Relation>(
         &self,
         tx: &mut MutTxId,
-        table_id: u32,
+        table_id: TableId,
         relation: R,
     ) -> Result<Option<u32>, DBError> {
-        measure(&RDB_DELETE_BY_REL_TIME, table_id);
-        self.inner.delete_by_rel_mut_tx(tx, TableId(table_id), relation)
+        measure(&RDB_DELETE_BY_REL_TIME, table_id.into());
+        self.inner.delete_by_rel_mut_tx(tx, table_id, relation)
     }
 
     /// Generated the next value for the [SequenceId]
@@ -679,7 +672,7 @@ mod tests {
         let table_id = stdb.table_id_from_name(&tx, "MyTable")?.unwrap();
         let schema = stdb.schema_for_table(&tx, table_id)?;
         let col = schema.columns.iter().find(|x| x.col_name == "my_col").unwrap();
-        assert_eq!(col.col_pos, 0);
+        assert_eq!(col.col_pos, 0.into());
         Ok(())
     }
 
@@ -757,7 +750,7 @@ mod tests {
         stdb.insert(&mut tx, table_id, product![AlgebraicValue::I32(1)])?;
 
         let mut rows = stdb
-            .iter_by_col_range(&tx, table_id, 0, AlgebraicValue::I32(0)..)?
+            .iter_by_col_range(&tx, table_id, 0.into(), AlgebraicValue::I32(0)..)?
             .map(|r| *r.view().elements[0].as_i32().unwrap())
             .collect::<Vec<i32>>();
         rows.sort();
@@ -782,7 +775,7 @@ mod tests {
 
         let tx = stdb.begin_tx();
         let mut rows = stdb
-            .iter_by_col_range(&tx, table_id, 0, AlgebraicValue::I32(0)..)?
+            .iter_by_col_range(&tx, table_id, 0.into(), AlgebraicValue::I32(0)..)?
             .map(|r| *r.view().elements[0].as_i32().unwrap())
             .collect::<Vec<i32>>();
         rows.sort();
@@ -843,7 +836,7 @@ mod tests {
                 col_type: AlgebraicType::I64,
             }],
         )
-        .add_constraint("my_col", Constraints::primary_key_auto(), NonEmpty::new(0))
+        .add_constraint("my_col", Constraints::primary_key_auto(), NonEmpty::new(0.into()))
     }
 
     #[test]
@@ -861,7 +854,7 @@ mod tests {
         stdb.insert(&mut tx, table_id, product![AlgebraicValue::I64(0)])?;
 
         let mut rows = stdb
-            .iter_by_col_range(&tx, table_id, 0, AlgebraicValue::I64(0)..)?
+            .iter_by_col_range(&tx, table_id, 0.into(), AlgebraicValue::I64(0)..)?
             .map(|r| *r.view().elements[0].as_i64().unwrap())
             .collect::<Vec<i64>>();
         rows.sort();
@@ -886,7 +879,7 @@ mod tests {
         stdb.insert(&mut tx, table_id, product![AlgebraicValue::I64(6)])?;
 
         let mut rows = stdb
-            .iter_by_col_range(&tx, table_id, 0, AlgebraicValue::I64(0)..)?
+            .iter_by_col_range(&tx, table_id, 0.into(), AlgebraicValue::I64(0)..)?
             .map(|r| *r.view().elements[0].as_i64().unwrap())
             .collect::<Vec<i64>>();
         rows.sort();
@@ -905,7 +898,7 @@ mod tests {
             }],
         )
         .with_indexes(&[IndexDef {
-            columns: NonEmpty::new(0),
+            columns: NonEmpty::new(0.into()),
             index_name: "MyTable_my_col_idx".to_string(),
             is_unique,
             index_type: IndexType::BTree,
@@ -924,7 +917,7 @@ mod tests {
                 col_type: AlgebraicType::I64,
             }],
         )
-        .with_sequences(&[SequenceDef::for_column("MyTable", "my_col", 0)]);
+        .with_sequences(&[SequenceDef::for_column("MyTable", "my_col", 0.into())]);
 
         let table_id = stdb.create_table(&mut tx, schema)?;
 
@@ -934,7 +927,7 @@ mod tests {
         stdb.insert(&mut tx, table_id, product![AlgebraicValue::I64(0)])?;
 
         let mut rows = stdb
-            .iter_by_col_range(&tx, table_id, 0, AlgebraicValue::I64(0)..)?
+            .iter_by_col_range(&tx, table_id, 0.into(), AlgebraicValue::I64(0)..)?
             .map(|r| *r.view().elements[0].as_i64().unwrap())
             .collect::<Vec<i64>>();
         rows.sort();
@@ -952,7 +945,7 @@ mod tests {
         stdb.insert(&mut tx, table_id, product![AlgebraicValue::I64(0)])?;
 
         let mut rows = stdb
-            .iter_by_col_range(&tx, table_id, 0, AlgebraicValue::I64(0)..)?
+            .iter_by_col_range(&tx, table_id, 0.into(), AlgebraicValue::I64(0)..)?
             .map(|r| *r.view().elements[0].as_i64().unwrap())
             .collect::<Vec<i64>>();
         rows.sort();
@@ -980,7 +973,7 @@ mod tests {
         stdb.insert(&mut tx, table_id, product![AlgebraicValue::I64(1)])?;
 
         let mut rows = stdb
-            .iter_by_col_range(&tx, table_id, 0, AlgebraicValue::I64(0)..)?
+            .iter_by_col_range(&tx, table_id, 0.into(), AlgebraicValue::I64(0)..)?
             .map(|r| *r.view().elements[0].as_i64().unwrap())
             .collect::<Vec<i64>>();
         rows.sort();
@@ -1036,12 +1029,12 @@ mod tests {
             }],
         )
         .with_indexes(&[IndexDef {
-            columns: NonEmpty::new(0),
+            columns: NonEmpty::new(0.into()),
             index_name: "MyTable_my_col_idx".to_string(),
             is_unique: true,
             index_type: IndexType::BTree,
         }])
-        .add_constraint("my_col", Constraints::identity(), NonEmpty::new(0));
+        .add_constraint("my_col", Constraints::identity(), NonEmpty::new(0.into()));
 
         let table_id = stdb.create_table(&mut tx, schema)?;
 
@@ -1057,7 +1050,7 @@ mod tests {
         stdb.insert(&mut tx, table_id, product![AlgebraicValue::I64(0)])?;
 
         let mut rows = stdb
-            .iter_by_col_range(&tx, table_id, 0, AlgebraicValue::I64(0)..)?
+            .iter_by_col_range(&tx, table_id, 0.into(), AlgebraicValue::I64(0)..)?
             .map(|r| *r.view().elements[0].as_i64().unwrap())
             .collect::<Vec<i64>>();
         rows.sort();
@@ -1095,50 +1088,50 @@ mod tests {
         )
         .with_indexes(&[
             IndexDef {
-                columns: NonEmpty::new(0),
+                columns: NonEmpty::new(0.into()),
                 index_name: "MyTable_col1_idx".to_string(),
                 is_unique: true,
                 index_type: IndexType::BTree,
             },
             IndexDef {
-                columns: NonEmpty::new(2),
+                columns: NonEmpty::new(2.into()),
                 index_name: "MyTable_col3_idx".to_string(),
                 is_unique: false,
                 index_type: IndexType::BTree,
             },
             IndexDef {
-                columns: NonEmpty::new(3),
+                columns: NonEmpty::new(3.into()),
                 index_name: "MyTable_col4_idx".to_string(),
                 is_unique: true,
                 index_type: IndexType::BTree,
             },
         ])
-        .with_sequences(&[SequenceDef::for_column("MyTable", "col1", 0)])
+        .with_sequences(&[SequenceDef::for_column("MyTable", "col1", 0.into())])
         .with_constraints(&[ConstraintDef::for_column(
             "MyTable",
             "col2",
             Constraints::indexed(),
-            NonEmpty::new(1),
+            NonEmpty::new(1.into()),
         )]);
 
         let table_id = stdb.create_table(&mut tx, schema)?;
 
         let indexes = stdb
-            .iter(&tx, ST_INDEXES_ID.0)?
+            .iter(&tx, ST_INDEXES_ID)?
             .map(|x| StIndexRow::try_from(x.view()).unwrap().to_owned())
             .filter(|x| x.table_id == table_id)
             .collect::<Vec<_>>();
         assert_eq!(indexes.len(), 4, "Wrong number of indexes");
 
         let sequences = stdb
-            .iter(&tx, ST_SEQUENCES_ID.0)?
+            .iter(&tx, ST_SEQUENCES_ID)?
             .map(|x| StSequenceRow::try_from(x.view()).unwrap().to_owned())
             .filter(|x| x.table_id == table_id)
             .collect::<Vec<_>>();
         assert_eq!(sequences.len(), 1, "Wrong number of sequences");
 
         let constraints = stdb
-            .iter(&tx, ST_CONSTRAINTS_ID.0)?
+            .iter(&tx, ST_CONSTRAINTS_ID)?
             .map(|x| StConstraintRow::try_from(x.view()).unwrap().to_owned())
             .filter(|x| x.table_id == table_id)
             .collect::<Vec<_>>();
@@ -1147,21 +1140,21 @@ mod tests {
         stdb.drop_table(&mut tx, table_id)?;
 
         let indexes = stdb
-            .iter(&tx, ST_INDEXES_ID.0)?
+            .iter(&tx, ST_INDEXES_ID)?
             .map(|x| StIndexRow::try_from(x.view()).unwrap().to_owned())
             .filter(|x| x.table_id == table_id)
             .collect::<Vec<_>>();
         assert_eq!(indexes.len(), 0, "Wrong number of indexes DROP");
 
         let sequences = stdb
-            .iter(&tx, ST_SEQUENCES_ID.0)?
+            .iter(&tx, ST_SEQUENCES_ID)?
             .map(|x| StSequenceRow::try_from(x.view()).unwrap().to_owned())
             .filter(|x| x.table_id == table_id)
             .collect::<Vec<_>>();
         assert_eq!(sequences.len(), 0, "Wrong number of sequences DROP");
 
         let constraints = stdb
-            .iter(&tx, ST_CONSTRAINTS_ID.0)?
+            .iter(&tx, ST_CONSTRAINTS_ID)?
             .map(|x| StConstraintRow::try_from(x.view()).unwrap().to_owned())
             .filter(|x| x.table_id == table_id)
             .collect::<Vec<_>>();
@@ -1184,7 +1177,7 @@ mod tests {
             }],
         )
         .with_indexes(&[IndexDef {
-            columns: NonEmpty::new(0),
+            columns: NonEmpty::new(0.into()),
             index_name: "MyTable_my_col_idx".to_string(),
             is_unique: true,
             index_type: IndexType::BTree,
@@ -1197,7 +1190,7 @@ mod tests {
         assert_eq!(Some("YourTable"), table_name.as_deref());
         // Also make sure we've removed the old ST_TABLES_ID row
         let mut n = 0;
-        for row in stdb.iter(&tx, ST_TABLES_ID.0)? {
+        for row in stdb.iter(&tx, ST_TABLES_ID)? {
             let table = StTableRow::try_from(row.view())?;
             if table.table_id == table_id {
                 n += 1;

@@ -558,7 +558,7 @@ pub fn autogen_csharp_table(ctx: &GenCtx, table: &TableDesc, namespace: &str) ->
             table
                 .schema
                 .clone()
-                .into_schema(0)
+                .into_schema(0.into())
                 .validated()
                 .expect("Fail to generate table"),
         ),
@@ -956,10 +956,10 @@ fn autogen_csharp_access_funcs_for_struct(
         let is_unique = idx.is_unique;
 
         //Skip multi_column  indexes
-        let col_i = if idx.columns.len() > 1 {
+        let col_i: usize = if idx.columns.len() > 1 {
             continue;
         } else {
-            idx.columns.head as usize
+            idx.columns.head.into()
         };
 
         let field = &product_type.elements[col_i];

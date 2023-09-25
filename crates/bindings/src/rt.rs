@@ -20,6 +20,7 @@ use sys::Buffer;
 
 use crate::sats::db::def::{ColumnDef, ConstraintDef, IndexDef, TableDef};
 pub use once_cell::sync::{Lazy, OnceCell};
+use spacetimedb_lib::sats::db::def::ColId;
 
 /// The `sender` invokes `reducer` at `timestamp` and provides it with the given `args`.
 ///
@@ -418,7 +419,7 @@ pub fn register_table<T: TableType>() {
             .enumerate()
             .map(|(col_pos, x)| {
                 let col = &columns[col_pos];
-                ConstraintDef::for_column(T::TABLE_NAME, &col.col_name, (*x).into(), NonEmpty::new(col_pos as u32))
+                ConstraintDef::for_column(T::TABLE_NAME, &col.col_name, (*x).into(), NonEmpty::new(col_pos.into()))
             })
             .collect();
 
@@ -435,7 +436,7 @@ pub fn register_table<T: TableType>() {
 
 impl From<crate::IndexDesc<'_>> for IndexDef {
     fn from(index: crate::IndexDesc<'_>) -> IndexDef {
-        let cols: Vec<u32> = index.col_ids.iter().map(|x| *x as u32).collect();
+        let cols: Vec<ColId> = index.col_ids.iter().map(|x| (*x).into()).collect();
         let columns = if let Some(cols) = NonEmpty::from_slice(&cols) {
             cols
         } else {

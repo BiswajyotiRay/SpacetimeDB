@@ -1,10 +1,15 @@
+use std::num::ParseIntError;
+use std::path::PathBuf;
+use std::sync::{MutexGuard, PoisonError};
+
+use hex::FromHexError;
+use thiserror::Error;
+
 use crate::client::ClientActorId;
 use crate::db::datastore::system_tables::SystemTable;
-use crate::db::datastore::traits::{IndexId, TableId};
-use hex::FromHexError;
 use spacetimedb_lib::buffer::DecodeError;
 use spacetimedb_lib::{PrimaryKey, ProductValue};
-use spacetimedb_sats::db::def::IndexDef;
+use spacetimedb_sats::db::def::{IndexDef, IndexId, TableId};
 use spacetimedb_sats::db::error::{LibError, RelationError, SchemaError};
 use spacetimedb_sats::product_value::InvalidFieldError;
 use spacetimedb_sats::relation::FieldName;
@@ -12,10 +17,6 @@ use spacetimedb_sats::satn::Satn;
 use spacetimedb_sats::AlgebraicValue;
 use spacetimedb_vm::errors::{ErrorKind, ErrorLang, ErrorVm};
 use spacetimedb_vm::expr::Crud;
-use std::num::ParseIntError;
-use std::path::PathBuf;
-use std::sync::{MutexGuard, PoisonError};
-use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum TableError {
@@ -28,7 +29,7 @@ pub enum TableError {
     #[error("Table with ID `{1}` not found in `{0}`.")]
     IdNotFound(SystemTable, u32),
     #[error("Table with ID `{0}` not found in `TxState`.")]
-    IdNotFoundState(u32),
+    IdNotFoundState(TableId),
     #[error("Column `{0}.{1}` is missing a name")]
     ColumnWithoutName(String, u32),
     #[error("schema_for_table: Table has invalid schema: {0} Err: {1}")]

@@ -573,7 +573,7 @@ pub fn autogen_typescript_table(ctx: &GenCtx, table: &TableDesc) -> String {
         ctx,
         &table.schema.table_name.clone(),
         tuple,
-        Some(table.schema.clone().into_schema(0)),
+        Some(table.schema.clone().into_schema(0.into())),
     )
 }
 
@@ -978,7 +978,7 @@ fn autogen_typescript_access_funcs_for_struct(
     let constraints = table.column_constraints();
     for col in it {
         let is_unique = constraints[&col.columns].has_unique();
-        let field = &product_type.elements[col.columns.head as usize];
+        let field = &product_type.elements[usize::from(col.columns.head)];
         let field_name = field.name.as_ref().expect("autogen'd tuples should have field names");
         let field_type = &field.algebraic_type;
         let typescript_field_name_pascal = field_name.replace("r#", "").to_case(Case::Pascal);

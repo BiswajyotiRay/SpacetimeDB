@@ -7,7 +7,7 @@ use crate::error::{DBError, PlanError};
 use crate::sql::ast::{compile_to_ast, Column, From, Join, Selection, SqlAst};
 use spacetimedb_lib::operator::OpQuery;
 use spacetimedb_sats::db::auth::StAccess;
-use spacetimedb_sats::db::def::{TableDef, TableSchema};
+use spacetimedb_sats::db::def::{ColId, TableDef, TableSchema};
 use spacetimedb_sats::relation::{self, DbTable, FieldExpr, FieldName, Header};
 use spacetimedb_sats::{AlgebraicValue, ProductType};
 use spacetimedb_vm::dsl::{db_table, db_table_raw, query};
@@ -120,16 +120,16 @@ fn compile_where(mut q: QueryExpr, table: &From, filter: Selection) -> Result<Qu
 // using an index.
 pub enum IndexArgument {
     Eq {
-        columns: NonEmpty<u32>,
+        columns: NonEmpty<ColId>,
         value: AlgebraicValue,
     },
     LowerBound {
-        columns: NonEmpty<u32>,
+        columns: NonEmpty<ColId>,
         value: AlgebraicValue,
         inclusive: bool,
     },
     UpperBound {
-        columns: NonEmpty<u32>,
+        columns: NonEmpty<ColId>,
         value: AlgebraicValue,
         inclusive: bool,
     },
@@ -386,7 +386,7 @@ mod tests {
     use itertools::Itertools;
     use spacetimedb_lib::error::ResultTest;
     use spacetimedb_sats::db::auth::{StAccess, StTableType};
-    use spacetimedb_sats::db::def::{ColumnDef, IndexDef, IndexType, TableDef};
+    use spacetimedb_sats::db::def::{ColumnDef, IndexDef, IndexType, TableDef, TableId};
     use spacetimedb_sats::{AlgebraicType, BuiltinValue};
     use spacetimedb_vm::expr::{IndexScan, JoinExpr, Query};
 
@@ -395,8 +395,8 @@ mod tests {
         tx: &mut MutTxId,
         name: &str,
         schema: &[(&str, AlgebraicType)],
-        indexes: &[(u32, &str)],
-    ) -> ResultTest<u32> {
+        indexes: &[(ColId, &str)],
+    ) -> ResultTest<TableId> {
         let table_name = name.to_string();
         let table_type = StTableType::User;
         let table_access = StAccess::Public;
@@ -463,7 +463,7 @@ mod tests {
 
         // Create table [test] with index on [a]
         let schema = &[("a", AlgebraicType::U64)];
-        let indexes = &[(0, "a")];
+        let indexes = &[(0.into(), "a")];
         create_table(&db, &mut tx, "test", schema, indexes)?;
 
         // Compile query
@@ -489,7 +489,7 @@ mod tests {
             panic!("Expected IndexScan");
         };
         assert_eq!(u, v);
-        assert_eq!(col_id, NonEmpty::new(0));
+        assert_eq!(col_id, NonEmpty::new(0.into()));
         assert_eq!(v, AlgebraicValue::U64(1));
         Ok(())
     }
@@ -501,7 +501,7 @@ mod tests {
 
         // Create table [test] with index on [b]
         let schema = &[("a", AlgebraicType::U64), ("b", AlgebraicType::U64)];
-        let indexes = &[(1, "b")];
+        let indexes = &[(1.into(), "b")];
         create_table(&db, &mut tx, "test", schema, indexes)?;
 
         // Note, order matters - the sargable predicate occurs last which means
@@ -531,7 +531,7 @@ mod tests {
 
         // Create table [test] with index on [b]
         let schema = &[("a", AlgebraicType::U64), ("b", AlgebraicType::U64)];
-        let indexes = &[(1, "b")];
+        let indexes = &[(1.into(), "b")];
         create_table(&db, &mut tx, "test", schema, indexes)?;
 
         // Note, order matters - the sargable predicate occurs first which
@@ -558,7 +558,7 @@ mod tests {
             panic!("Expected IndexScan");
         };
         assert_eq!(u, v);
-        assert_eq!(col_id, NonEmpty::new(1));
+        assert_eq!(col_id, NonEmpty::new(1.into()));
         assert_eq!(v, AlgebraicValue::U64(2));
         Ok(())
     }
@@ -570,7 +570,7 @@ mod tests {
 
         // Create table [test] with indexes on [a] and [b]
         let schema = &[("a", AlgebraicType::U64), ("b", AlgebraicType::U64)];
-        let indexes = &[(0, "a"), (1, "b")];
+        let indexes = &[(0.into(), "a"), (1.into(), "b")];
         create_table(&db, &mut tx, "test", schema, indexes)?;
 
         // Compile query
@@ -594,10 +594,10 @@ mod tests {
 
     fn assert_index_scan(
         op: Query,
-        col: u32,
+        col: ColId,
         low_bound: Bound<AlgebraicValue>,
         up_bound: Bound<AlgebraicValue>,
-    ) -> u32 {
+    ) -> TableId {
         if let Query::IndexScan(IndexScan {
             table,
             columns,
@@ -621,7 +621,7 @@ mod tests {
 
         // Create table [test] with indexes on [b]
         let schema = &[("a", AlgebraicType::U64), ("b", AlgebraicType::U64)];
-        let indexes = &[(1, "b")];
+        let indexes = &[(1.into(), "b")];
         create_table(&db, &mut tx, "test", schema, indexes)?;
 
         // Compile query
@@ -638,7 +638,7 @@ mod tests {
 
         assert_index_scan(
             ops.remove(0),
-            1,
+            1.into(),
             Bound::Excluded(AlgebraicValue::U64(2)),
             Bound::Unbounded,
         );
@@ -653,7 +653,7 @@ mod tests {
 
         // Create table [test] with indexes on [b]
         let schema = &[("a", AlgebraicType::U64), ("b", AlgebraicType::U64)];
-        let indexes = &[(1, "b")];
+        let indexes = &[(1.into(), "b")];
         create_table(&db, &mut tx, "test", schema, indexes)?;
 
         // Compile query
@@ -670,7 +670,7 @@ mod tests {
 
         assert_index_scan(
             ops.remove(0),
-            1,
+            1.into(),
             Bound::Excluded(AlgebraicValue::U64(2)),
             Bound::Excluded(AlgebraicValue::U64(5)),
         );
@@ -685,7 +685,7 @@ mod tests {
 
         // Create table [test] with indexes on [a] and [b]
         let schema = &[("a", AlgebraicType::U64), ("b", AlgebraicType::U64)];
-        let indexes = &[(0, "a"), (1, "b")];
+        let indexes = &[(0.into(), "a"), (1.into(), "b")];
         create_table(&db, &mut tx, "test", schema, indexes)?;
 
         // Note, order matters - the equality condition occurs first which
@@ -704,7 +704,7 @@ mod tests {
 
         assert_index_scan(
             ops.remove(0),
-            0,
+            0.into(),
             Bound::Included(AlgebraicValue::U64(3)),
             Bound::Included(AlgebraicValue::U64(3)),
         );
@@ -722,7 +722,7 @@ mod tests {
 
         // Create table [lhs] with index on [a]
         let schema = &[("a", AlgebraicType::U64), ("b", AlgebraicType::U64)];
-        let indexes = &[(0, "a")];
+        let indexes = &[(0.into(), "a")];
         let lhs_id = create_table(&db, &mut tx, "lhs", schema, indexes)?;
 
         // Create table [rhs] with no indexes
@@ -749,7 +749,7 @@ mod tests {
         // First operation in the pipeline should be an index scan
         let table_id = assert_index_scan(
             query[0].clone(),
-            0,
+            0.into(),
             Bound::Included(AlgebraicValue::Builtin(BuiltinValue::U64(3))),
             Bound::Included(AlgebraicValue::Builtin(BuiltinValue::U64(3))),
         );
@@ -793,12 +793,12 @@ mod tests {
 
         // Create table [lhs] with index on [a]
         let schema = &[("a", AlgebraicType::U64), ("b", AlgebraicType::U64)];
-        let indexes = &[(0, "a")];
+        let indexes = &[(0.into(), "a")];
         let lhs_id = create_table(&db, &mut tx, "lhs", schema, indexes)?;
 
         // Create table [rhs] with index on [c]
         let schema = &[("b", AlgebraicType::U64), ("c", AlgebraicType::U64)];
-        let indexes = &[(1, "c")];
+        let indexes = &[(1.into(), "c")];
         let rhs_id = create_table(&db, &mut tx, "rhs", schema, indexes)?;
 
         // Should push the sargable equality condition into the join's left arg.
@@ -821,7 +821,7 @@ mod tests {
         // First operation in the pipeline should be an index scan
         let table_id = assert_index_scan(
             query[0].clone(),
-            0,
+            0.into(),
             Bound::Included(AlgebraicValue::Builtin(BuiltinValue::U64(3))),
             Bound::Included(AlgebraicValue::Builtin(BuiltinValue::U64(3))),
         );
@@ -860,7 +860,7 @@ mod tests {
         // The right side of the join should be an index scan
         let table_id = assert_index_scan(
             rhs[0].clone(),
-            1,
+            1.into(),
             Bound::Unbounded,
             Bound::Excluded(AlgebraicValue::Builtin(BuiltinValue::U64(4))),
         );

@@ -1,14 +1,14 @@
-use anyhow::Context;
-use bytes::Bytes;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use anyhow::Context;
+use bytes::Bytes;
 
 use crate::client::ClientConnectionSender;
 use crate::database_instance_context::DatabaseInstanceContext;
 use crate::database_logger::{DatabaseLogger, LogLevel, Record};
 use crate::db::datastore::locking_tx_datastore::MutTxId;
-use crate::db::datastore::traits::{IndexId, TableId};
 use crate::hash::Hash;
 use crate::host::instance_env::InstanceEnv;
 use crate::host::module_host::{
@@ -27,7 +27,7 @@ use crate::worker_metrics::{REDUCER_COMPUTE_TIME, REDUCER_COUNT, REDUCER_WRITE_S
 use spacetimedb_lib::buffer::DecodeError;
 use spacetimedb_lib::identity::AuthCtx;
 use spacetimedb_lib::{bsatn, ModuleDef};
-use spacetimedb_sats::db::def::{IndexDef, TableDef, TableSchema};
+use spacetimedb_sats::db::def::{IndexDef, IndexId, TableDef, TableId, TableSchema};
 use spacetimedb_vm::expr::CrudExpr;
 
 use super::*;
@@ -775,16 +775,16 @@ impl<T: WasmInstance> WasmModuleInstance<T> {
                         match known_indexes.remove(&index_def.index_name) {
                             None => indexes_to_create.push(IndexWithTable {
                                 index: index_def,
-                                table_id: TableId(table_id),
+                                table_id,
                             }),
                             Some(known_index) => {
-                                let known_id = IndexId(known_index.index_id);
+                                let known_id = known_index.index_id;
                                 let known_index_def = IndexDef::from(known_index);
                                 if known_index_def != index_def {
                                     indexes_to_drop.push(known_id);
                                     indexes_to_create.push(IndexWithTable {
                                         index: index_def,
-                                        table_id: TableId(table_id),
+                                        table_id,
                                     });
                                 }
                             }
@@ -793,7 +793,7 @@ impl<T: WasmInstance> WasmModuleInstance<T> {
 
                     // Indexes not in the proposed schema shall be dropped.
                     for index in known_indexes.into_values() {
-                        indexes_to_drop.push(IndexId(index.index_id));
+                        indexes_to_drop.push(index.index_id);
                     }
                 }
             } else {
