@@ -7,6 +7,7 @@ use derive_more::Display;
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::db::attr::{AttributeKind, ColumnAttribute};
 use crate::db::error::{DefType, SchemaError};
 use crate::de::BasicVecVisitor;
 use crate::ser::SerializeArray;
@@ -108,7 +109,7 @@ bitflags::bitflags! {
         /// PrimaryKey + AutoInc
         const PRIMARY_KEY_AUTO = Self::PRIMARY_KEY.bits() | 0b10000;
         /// PrimaryKey + Identity
-        const PRIMARY_KEY_IDENTITY = Self::PRIMARY_KEY.bits() | Self::IDENTITY.bits() ;
+        const PRIMARY_KEY_IDENTITY = Self::PRIMARY_KEY.bits() | Self::IDENTITY.bits();
     }
 }
 
@@ -176,6 +177,13 @@ impl Constraints {
     pub const fn primary_key_auto() -> Self {
         Constraints {
             attr: ConstraintFlags::PRIMARY_KEY_AUTO,
+        }
+    }
+
+    /// Creates a new `Constraints` instance with [ConstraintFlags::PRIMARY_KEY_IDENTITY] set.
+    pub const fn primary_key_identity() -> Self {
+        Constraints {
+            attr: ConstraintFlags::PRIMARY_KEY_IDENTITY,
         }
     }
 
@@ -248,6 +256,23 @@ impl TryFrom<u8> for Constraints {
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         Ok(Constraints {
             attr: ConstraintFlags::from_bits(v).ok_or(())?,
+        })
+    }
+}
+
+impl TryFrom<ColumnAttribute> for Constraints {
+    type Error = ();
+
+    fn try_from(value: ColumnAttribute) -> Result<Self, Self::Error> {
+        Ok(match value.kind() {
+            AttributeKind::UNSET => Constraints::unset(),
+            AttributeKind::INDEXED => Constraints::indexed(),
+            AttributeKind::UNIQUE => Constraints::unique(),
+            AttributeKind::IDENTITY => Constraints::identity(),
+            AttributeKind::PRIMARY_KEY => Constraints::primary_key(),
+            AttributeKind::PRIMARY_KEY_AUTO => Constraints::primary_key_auto(),
+            AttributeKind::PRIMARY_KEY_IDENTITY => Constraints::primary_key_identity(),
+            AttributeKind::AUTO_INC => return Err(()),
         })
     }
 }

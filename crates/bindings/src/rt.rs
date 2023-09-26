@@ -18,7 +18,8 @@ use spacetimedb_lib::ser::{Serialize, SerializeSeqProduct};
 use spacetimedb_lib::{bsatn, Identity, MiscModuleExport, ModuleDef, ReducerDef, TableDesc, TypeAlias};
 use sys::Buffer;
 
-use crate::sats::db::def::{ColumnDef, ConstraintDef, IndexDef, TableDef};
+use crate::sats::db::attr::AttributeKind;
+use crate::sats::db::def::{ColumnDef, ConstraintDef, Constraints, IndexDef, SequenceDef, TableDef};
 pub use once_cell::sync::{Lazy, OnceCell};
 use spacetimedb_lib::sats::db::def::ColId;
 
@@ -419,7 +420,26 @@ pub fn register_table<T: TableType>() {
             .enumerate()
             .map(|(col_pos, x)| {
                 let col = &columns[col_pos];
-                ConstraintDef::for_column(T::TABLE_NAME, &col.col_name, (*x).into(), NonEmpty::new(col_pos.into()))
+                let kind = match (*x).try_into() {
+                    Ok(x) => x,
+                    Err(_) => Constraints::unset(),
+                };
+
+                ConstraintDef::for_column(T::TABLE_NAME, &col.col_name, kind, NonEmpty::new(col_pos.into()))
+            })
+            .collect();
+
+        let sequences: Vec<_> = T::COLUMN_ATTRS
+            .iter()
+            .enumerate()
+            .filter_map(|(col_pos, x)| {
+                let col = &columns[col_pos];
+
+                if x.kind() == AttributeKind::AUTO_INC {
+                    Some(SequenceDef::for_column(T::TABLE_NAME, &col.col_name, col_pos.into()))
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -427,6 +447,7 @@ pub fn register_table<T: TableType>() {
             .with_type(StTableType::User)
             .with_access(StAccess::for_name(T::TABLE_NAME))
             .with_constraints(&constraints)
+            .with_sequences(&sequences)
             .with_indexes(&indexes);
         let schema = TableDesc { schema, data };
 

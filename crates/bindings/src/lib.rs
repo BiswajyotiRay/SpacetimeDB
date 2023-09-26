@@ -31,9 +31,9 @@ pub use spacetimedb_bindings_sys as sys;
 pub use sys::Errno;
 use sys::{Buffer, BufferIter};
 
-use crate::sats::db::def::{ConstraintFlags, IndexType};
+use crate::sats::db::attr::ColumnAttribute;
+use crate::sats::db::def::IndexType;
 pub use log;
-use spacetimedb_lib::sats::db::def::Constraints;
 
 pub type Result<T = (), E = Errno> = core::result::Result<T, E>;
 
@@ -131,10 +131,8 @@ pub fn insert<T: TableType>(table_id: u32, row: T) -> T::InsertResult {
             let mut i = 0;
             let mut x = false;
             while i < T::COLUMN_ATTRS.len() {
-                let constraint = Constraints {
-                    attr: T::COLUMN_ATTRS[i],
-                };
-                if constraint.has_autoinc() {
+                let attr = T::COLUMN_ATTRS[i];
+                if attr.has_autoinc() {
                     x = true;
                     break;
                 }
@@ -417,7 +415,7 @@ impl<T: TableType> Iterator for TableIter<T> {
 /// Additionally, the type knows its own table name, its column attributes, and indices.
 pub trait TableType: SpacetimeType + DeserializeOwned + Serialize {
     const TABLE_NAME: &'static str;
-    const COLUMN_ATTRS: &'static [ConstraintFlags];
+    const COLUMN_ATTRS: &'static [ColumnAttribute];
     const INDEXES: &'static [IndexDesc<'static>];
     type InsertResult: sealed::InsertResult<T = Self>;
 
