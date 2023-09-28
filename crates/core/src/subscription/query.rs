@@ -152,14 +152,13 @@ mod tests {
     use std::ops::Deref;
 
     use super::*;
-    use crate::db::datastore::traits::{ColumnDef, IndexDef, TableDef, TableSchema};
+    use crate::db::datastore::traits::{ColId, ColumnDef, IndexDef, TableDef, TableSchema};
     use crate::db::relational_db::tests_utils::make_test_db;
     use crate::host::module_host::{DatabaseTableUpdate, DatabaseUpdate, TableOp};
     use crate::sql::execute::run;
     use crate::subscription::subscription::QuerySet;
     use crate::vm::tests::create_table_with_rows;
     use itertools::Itertools;
-    use nonempty::NonEmpty;
     use spacetimedb_lib::auth::{StAccess, StTableType};
     use spacetimedb_lib::data_key::ToDataKey;
     use spacetimedb_lib::error::ResultTest;
@@ -176,28 +175,23 @@ mod tests {
         schema: &[(&str, AlgebraicType)],
         indexes: &[(u32, &str)],
     ) -> ResultTest<u32> {
-        let table_name = name.to_string();
+        let table_name = string(name);
         let table_type = StTableType::User;
         let table_access = StAccess::Public;
 
         let columns = schema
             .iter()
             .map(|(col_name, col_type)| ColumnDef {
-                col_name: col_name.to_string(),
+                col_name: string(col_name),
                 col_type: col_type.clone(),
                 is_autoinc: false,
             })
-            .collect_vec();
+            .collect();
 
         let indexes = indexes
             .iter()
-            .map(|(col_id, index_name)| IndexDef {
-                table_id: 0,
-                cols: NonEmpty::new(*col_id),
-                name: index_name.to_string(),
-                is_unique: false,
-            })
-            .collect_vec();
+            .map(|(col_id, index_name)| IndexDef::new(string(index_name), 0, ColId(*col_id), false))
+            .collect();
 
         let schema = TableDef {
             table_name,
@@ -425,7 +419,7 @@ mod tests {
             let row_pk = row.to_data_key().to_bytes();
             ops.push(TableOp {
                 op_type: 0,
-                row_pk,
+                row_pk: row_pk.into(),
                 row,
             })
         }
@@ -433,8 +427,8 @@ mod tests {
         let update = DatabaseUpdate {
             tables: vec![DatabaseTableUpdate {
                 table_id,
-                table_name: "test".into(),
-                ops,
+                table_name: string("test"),
+                ops: ops.into(),
             }],
         };
 
@@ -450,7 +444,10 @@ mod tests {
 
         assert_eq!(op.op_type, 0);
         assert_eq!(op.row, product!(13u64, 3u64));
-        assert_eq!(op.row_pk, product!(13u64, 3u64).to_data_key().to_bytes());
+        assert_eq!(
+            op.row_pk,
+            product!(13u64, 3u64).to_data_key().to_bytes().into_boxed_slice()
+        );
         Ok(())
     }
 
@@ -496,12 +493,12 @@ mod tests {
         let lhs_op = TableOp {
             op_type: 0,
             row: lhs_row,
-            row_pk: lhs_key,
+            row_pk: lhs_key.into(),
         };
         updates.push(DatabaseTableUpdate {
             table_id: lhs_id,
-            table_name: "lhs".into(),
-            ops: vec![lhs_op],
+            table_name: string("lhs"),
+            ops: [lhs_op].into(),
         });
 
         // An update event for the right table that matches the query
@@ -510,12 +507,12 @@ mod tests {
         let rhs_op = TableOp {
             op_type: 0,
             row: rhs_row,
-            row_pk: rhs_key,
+            row_pk: rhs_key.into(),
         };
         updates.push(DatabaseTableUpdate {
             table_id: rhs_id,
-            table_name: "rhs".into(),
-            ops: vec![rhs_op],
+            table_name: string("rhs"),
+            ops: [rhs_op].into(),
         });
 
         let update = DatabaseUpdate { tables: updates };
@@ -532,7 +529,10 @@ mod tests {
 
         assert_eq!(op.op_type, 0);
         assert_eq!(op.row, product!(11u64, 3u64));
-        assert_eq!(op.row_pk, product!(11u64, 3u64).to_data_key().to_bytes());
+        assert_eq!(
+            op.row_pk,
+            product!(11u64, 3u64).to_data_key().to_bytes().into_boxed_slice()
+        );
         Ok(())
     }
 

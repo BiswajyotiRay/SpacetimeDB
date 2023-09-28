@@ -16,11 +16,10 @@ use crate::error::{DBError, DatabaseError, IndexError, TableError};
 use crate::hash::Hash;
 use crate::util::prometheus_handle::HistogramVecHandle;
 use fs2::FileExt;
-use nonempty::NonEmpty;
 use prometheus::HistogramVec;
 use spacetimedb_lib::ColumnIndexAttribute;
 use spacetimedb_lib::{data_key::ToDataKey, PrimaryKey};
-use spacetimedb_sats::{AlgebraicType, AlgebraicValue, ProductType, ProductValue, SatsString};
+use spacetimedb_sats::{AlgebraicType, AlgebraicValue, ProductType, ProductValue, SatsNonEmpty, SatsString};
 use std::fs::{create_dir_all, File};
 use std::ops::RangeBounds;
 use std::path::Path;
@@ -398,7 +397,7 @@ impl RelationalDB {
         &self,
         tx: &mut MutTxId,
         table_id: u32,
-        cols: &NonEmpty<u32>,
+        cols: &SatsNonEmpty<ColId>,
     ) -> Result<ColumnIndexAttribute, DBError> {
         let table = self.inner.schema_for_table_mut_tx(tx, TableId(table_id))?;
         let columns = table.project_not_empty(cols)?;
@@ -433,7 +432,11 @@ impl RelationalDB {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn sequence_id_from_name(&self, tx: &MutTxId, sequence_name: SatsString) -> Result<Option<SequenceId>, DBError> {
+    pub fn sequence_id_from_name(
+        &self,
+        tx: &MutTxId,
+        sequence_name: SatsString,
+    ) -> Result<Option<SequenceId>, DBError> {
         self.inner.sequence_id_from_name_mut_tx(tx, sequence_name)
     }
 
@@ -620,7 +623,6 @@ pub(crate) mod tests_utils {
 mod tests {
     #![allow(clippy::disallowed_macros)]
 
-    use nonempty::NonEmpty;
     use std::sync::{Arc, Mutex};
 
     use crate::address::Address;
@@ -629,6 +631,7 @@ mod tests {
     use crate::db::datastore::system_tables::StTableRow;
     use crate::db::datastore::system_tables::ST_INDEXES_ID;
     use crate::db::datastore::system_tables::ST_SEQUENCES_ID;
+    use crate::db::datastore::traits::ColId;
     use crate::db::datastore::traits::ColumnDef;
     use crate::db::datastore::traits::IndexDef;
     use crate::db::datastore::traits::TableDef;
@@ -717,7 +720,7 @@ mod tests {
         let table_id = stdb.table_id_from_name(&tx, string("MyTable"))?.unwrap();
         let schema = stdb.schema_for_table(&tx, table_id)?;
         let col = schema.columns.iter().find(|x| &*x.col_name == "my_col").unwrap();
-        assert_eq!(col.col_id, 0);
+        assert_eq!(col.col_id.0, 0);
         Ok(())
     }
 
@@ -1018,12 +1021,7 @@ mod tests {
                 is_autoinc: false,
             }]
             .into(),
-            indexes: vec![IndexDef {
-                table_id: 0,
-                cols: NonEmpty::new(0),
-                name: string("MyTable_my_col_idx"),
-                is_unique: false,
-            }],
+            indexes: vec![IndexDef::new(string("MyTable_my_col_idx"), 0, ColId(0), false)],
             table_type: StTableType::User,
             table_access: StAccess::Public,
         };
@@ -1061,12 +1059,7 @@ mod tests {
                 is_autoinc: false,
             }]
             .into(),
-            indexes: vec![IndexDef {
-                table_id: 0,
-                cols: NonEmpty::new(0),
-                name: string("MyTable_my_col_idx"),
-                is_unique: true,
-            }],
+            indexes: vec![IndexDef::new(string("MyTable_my_col_idx"), 0, ColId(0), true)],
             table_type: StTableType::User,
             table_access: StAccess::Public,
         };
@@ -1109,12 +1102,7 @@ mod tests {
                 is_autoinc: true,
             }]
             .into(),
-            indexes: vec![IndexDef {
-                table_id: 0,
-                cols: NonEmpty::new(0),
-                name: string("MyTable_my_col_idx"),
-                is_unique: true,
-            }],
+            indexes: vec![IndexDef::new(string("MyTable_my_col_idx"), 0, ColId(0), true)],
             table_type: StTableType::User,
             table_access: StAccess::Public,
         };
@@ -1173,24 +1161,9 @@ mod tests {
             ]
             .into(),
             indexes: vec![
-                IndexDef {
-                    table_id: 0,
-                    cols: NonEmpty::new(0),
-                    name: string("MyTable_col1_idx"),
-                    is_unique: true,
-                },
-                IndexDef {
-                    table_id: 0,
-                    cols: NonEmpty::new(2),
-                    name: string("MyTable_col3_idx"),
-                    is_unique: false,
-                },
-                IndexDef {
-                    table_id: 0,
-                    cols: NonEmpty::new(3),
-                    name: string("MyTable_col4_idx"),
-                    is_unique: true,
-                },
+                IndexDef::new(string("MyTable_col1_idx"), 0, ColId(0), true),
+                IndexDef::new(string("MyTable_col3_idx"), 0, ColId(2), false),
+                IndexDef::new(string("MyTable_col4_idx"), 0, ColId(3), true),
             ],
             table_type: StTableType::User,
             table_access: StAccess::Public,
@@ -1244,12 +1217,7 @@ mod tests {
                 is_autoinc: true,
             }]
             .into(),
-            indexes: vec![IndexDef {
-                table_id: 0,
-                cols: NonEmpty::new(0),
-                name: string("MyTable_my_col_idx"),
-                is_unique: true,
-            }],
+            indexes: vec![IndexDef::new(string("MyTable_my_col_idx"), 0, ColId(0), true)],
             table_type: StTableType::User,
             table_access: StAccess::Public,
         };

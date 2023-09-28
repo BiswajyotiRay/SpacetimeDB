@@ -470,7 +470,11 @@ pub fn build_query(mut result: Box<IterRows>, query: Vec<Query>) -> Result<Box<I
                         let r = r.get(&col_rhs, &col_rhs_header);
                         Ok(l == r)
                     },
-                    move |l, r| l.extend(r),
+                    move |l, r| {
+                        let concat = l.extend(r).map_err(|e| e.forget());
+                        let concat = concat.map_err(|e| ErrorVm::Type(ErrorType::LenTooLong(e)))?;
+                        Ok(concat)
+                    },
                 )?;
                 Box::new(iter)
             }

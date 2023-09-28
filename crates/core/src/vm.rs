@@ -1,10 +1,9 @@
 //! The [DbProgram] that execute arbitrary queries & code against the database.
 use crate::db::cursor::{CatalogCursor, IndexCursor, TableCursor};
 use crate::db::datastore::locking_tx_datastore::{IterByColEq, MutTxId};
-use crate::db::datastore::traits::{ColumnDef, IndexDef, TableDef};
+use crate::db::datastore::traits::{ColId, ColumnDef, IndexDef, TableDef};
 use crate::db::relational_db::RelationalDB;
 use itertools::Itertools;
-use nonempty::NonEmpty;
 use spacetimedb_lib::auth::{StAccess, StTableType};
 use spacetimedb_lib::identity::AuthCtx;
 use spacetimedb_lib::relation::{DbTable, FieldExpr, FieldName, Relation};
@@ -13,7 +12,7 @@ use spacetimedb_lib::table::ProductTypeMeta;
 use spacetimedb_sats::{AlgebraicValue, ProductValue, SatsString};
 use spacetimedb_vm::dsl::mem_table;
 use spacetimedb_vm::env::EnvDb;
-use spacetimedb_vm::errors::ErrorVm;
+use spacetimedb_vm::errors::{ErrorType, ErrorVm};
 use spacetimedb_vm::eval::IterRows;
 use spacetimedb_vm::expr::*;
 use spacetimedb_vm::program::{ProgramRef, ProgramVm};
@@ -125,9 +124,10 @@ fn join_inner<'a>(
         },
         move |l, r| {
             if semi {
-                l
+                Ok(l)
             } else {
                 l.extend(r)
+                    .map_err(|e| ErrorVm::Type(ErrorType::LenTooLong(e.forget())))
             }
         },
     )
@@ -327,12 +327,12 @@ impl<'db, 'tx> DbProgram<'db, 'tx> {
         for (i, column) in columns.columns.iter().enumerate() {
             let meta = columns.attr[i];
             if meta.is_unique() {
-                indexes.push(IndexDef {
-                    table_id: 0, // Ignored
-                    cols: NonEmpty::new(i as u32),
-                    name: SatsString::from_string(format!("{}_{}_idx", table_name, i)),
-                    is_unique: true,
-                });
+                indexes.push(IndexDef::new(
+                    SatsString::from_string(format!("{}_{}_idx", table_name, i)),
+                    0, // Ignored
+                    ColId(i as u32),
+                    true,
+                ));
             }
             cols.push(ColumnDef {
                 col_name: column
@@ -510,11 +510,12 @@ pub(crate) mod tests {
         StIndexFields, StIndexRow, StSequenceFields, StSequenceRow, StTableFields, StTableRow, ST_COLUMNS_ID,
         ST_SEQUENCES_ID, ST_TABLES_ID,
     };
+    use crate::db::datastore::traits::ColId;
     use crate::db::relational_db::tests_utils::make_test_db;
     use crate::db::relational_db::{ST_COLUMNS_NAME, ST_INDEXES_NAME, ST_SEQUENCES_NAME, ST_TABLES_NAME};
     use spacetimedb_lib::error::ResultTest;
     use spacetimedb_lib::relation::{DbTable, FieldName};
-    use spacetimedb_sats::{product, string, AlgebraicType, ProductType, ProductValue, SatsString};
+    use spacetimedb_sats::{product, string, AlgebraicType, ProductType, ProductValue, SatsNonEmpty, SatsString};
     use spacetimedb_vm::dsl::*;
     use spacetimedb_vm::eval::run_ast;
     use spacetimedb_vm::operator::OpCmp;
@@ -670,7 +671,7 @@ pub(crate) mod tests {
             ST_COLUMNS_NAME,
             (StColumnRow {
                 table_id: ST_COLUMNS_ID.0,
-                col_id: StColumnFields::TableId as u32,
+                col_id: ColId(StColumnFields::TableId as u32),
                 col_name: string(StColumnFields::TableId.name()),
                 col_type: AlgebraicType::U32,
                 is_autoinc: false,
@@ -698,7 +699,7 @@ pub(crate) mod tests {
         db.commit_tx(tx)?;
 
         let mut tx = db.begin_tx();
-        let index = IndexDef::new(string("idx_1"), table_id, 0, true);
+        let index = IndexDef::new(string("idx_1"), table_id, ColId(0), true);
         let index_id = db.create_index(&mut tx, index)?;
 
         let p = &mut DbProgram::new(&db, &mut tx, AuthCtx::for_testing());
@@ -715,7 +716,7 @@ pub(crate) mod tests {
                 index_id: index_id.0,
                 index_name: string("idx_1"),
                 table_id,
-                cols: NonEmpty::new(0),
+                cols: SatsNonEmpty::new(ColId(0)),
                 is_unique: true,
             })
             .into(),
@@ -747,7 +748,7 @@ pub(crate) mod tests {
                 sequence_id: 1,
                 sequence_name: string("sequence_id_seq"),
                 table_id: 2,
-                col_id: 0,
+                col_id: ColId(0),
                 increment: 1,
                 start: 4,
                 min_value: 1,

@@ -1,13 +1,13 @@
 use crate::db::relational_db::ST_TABLES_ID;
 use core::fmt;
-use nonempty::NonEmpty;
 use spacetimedb_lib::auth::{StAccess, StTableType};
 use spacetimedb_lib::relation::{DbTable, FieldName, FieldOnly, Header, TableField};
 use spacetimedb_lib::{ColumnIndexAttribute, DataKey, Hash};
 use spacetimedb_sats::product_value::InvalidFieldError;
 use spacetimedb_sats::slim_slice::SlimSliceBoxCollected;
 use spacetimedb_sats::{
-    string, AlgebraicType, AlgebraicValue, ProductType, ProductTypeElement, ProductValue, SatsString, SatsVec,
+    string, AlgebraicType, AlgebraicValue, ProductType, ProductTypeElement, ProductValue, SatsNonEmpty, SatsString,
+    SatsVec,
 };
 use spacetimedb_vm::expr::SourceExpr;
 use std::{ops::RangeBounds, sync::Arc};
@@ -18,6 +18,7 @@ use super::{system_tables::StTableRow, Result};
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct TableId(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[repr(transparent)]
 pub struct ColId(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct IndexId(pub(crate) u32);
@@ -54,12 +55,25 @@ impl From<TableId> for AlgebraicValue {
     }
 }
 
+impl From<ColId> for AlgebraicValue {
+    fn from(value: ColId) -> Self {
+        value.0.into()
+    }
+}
+
+impl ColId {
+    /// Returns this column "id" as an index.
+    pub fn idx(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SequenceSchema {
     pub(crate) sequence_id: u32,
     pub(crate) sequence_name: SatsString,
     pub(crate) table_id: u32,
-    pub(crate) col_id: u32,
+    pub(crate) col_id: ColId,
     pub(crate) increment: i128,
     pub(crate) start: i128,
     pub(crate) min_value: i128,
@@ -73,7 +87,7 @@ pub struct SequenceSchema {
 pub struct SequenceDef {
     pub(crate) sequence_name: SatsString,
     pub(crate) table_id: u32,
-    pub(crate) col_id: u32,
+    pub(crate) col_id: ColId,
     pub(crate) increment: i128,
     pub(crate) start: Option<i128>,
     pub(crate) min_value: Option<i128>,
@@ -86,22 +100,22 @@ pub struct IndexSchema {
     pub(crate) table_id: u32,
     pub(crate) index_name: SatsString,
     pub(crate) is_unique: bool,
-    pub(crate) cols: NonEmpty<u32>,
+    pub(crate) cols: SatsNonEmpty<ColId>,
 }
 
 /// This type is just the [IndexSchema] without the autoinc fields
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexDef {
     pub(crate) table_id: u32,
-    pub(crate) cols: NonEmpty<u32>,
+    pub(crate) cols: SatsNonEmpty<ColId>,
     pub(crate) name: SatsString,
     pub(crate) is_unique: bool,
 }
 
 impl IndexDef {
-    pub fn new(name: SatsString, table_id: u32, col_id: u32, is_unique: bool) -> Self {
+    pub fn new(name: SatsString, table_id: u32, col_id: ColId, is_unique: bool) -> Self {
         Self {
-            cols: NonEmpty::new(col_id),
+            cols: SatsNonEmpty::new(col_id),
             name,
             is_unique,
             table_id,
@@ -123,7 +137,7 @@ impl From<IndexSchema> for IndexDef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnSchema {
     pub(crate) table_id: u32,
-    pub(crate) col_id: u32,
+    pub(crate) col_id: ColId,
     pub(crate) col_name: SatsString,
     pub(crate) col_type: AlgebraicType,
     pub(crate) is_autoinc: bool,
@@ -149,7 +163,7 @@ impl From<&ColumnSchema> for spacetimedb_lib::table::ColumnDef {
             // } else {
             //     spacetimedb_lib::ColumnIndexAttribute::UnSet
             // },
-            pos: value.col_id as usize,
+            pos: value.col_id.idx(),
         }
     }
 }
@@ -226,12 +240,9 @@ impl TableSchema {
     /// Warning: It ignores the `table_name`
     pub fn get_index_by_field(&self, field: &FieldName) -> Option<&IndexSchema> {
         let ColumnSchema { col_id, .. } = self.get_column_by_field(field)?;
-        self.indexes.iter().find(
-            |IndexSchema {
-                 cols: NonEmpty { head: index_col, tail },
-                 ..
-             }| tail.is_empty() && index_col == col_id,
-        )
+        self.indexes
+            .iter()
+            .find(|IndexSchema { cols, .. }| cols.len() == 1 && cols.head == *col_id)
     }
 
     pub fn get_column(&self, pos: usize) -> Option<&ColumnSchema> {
@@ -267,8 +278,8 @@ impl TableSchema {
 
     /// Utility for project the fields from the supplied `columns` that is a [NonEmpty<u32>],
     /// used for when the list of field columns have at least one value.
-    pub fn project_not_empty(&self, columns: &NonEmpty<u32>) -> Result<Vec<&ColumnSchema>> {
-        self.project(columns.iter().map(|&x| x as usize))
+    pub fn project_not_empty(&self, columns: &SatsNonEmpty<ColId>) -> Result<Vec<&ColumnSchema>> {
+        self.project(columns.iter().map(|x| x.idx()))
     }
 }
 

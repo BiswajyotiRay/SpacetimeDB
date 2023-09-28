@@ -1,4 +1,4 @@
-use crate::errors::{ErrorType, ErrorVm};
+use crate::errors::ErrorVm;
 use spacetimedb_lib::relation::{FieldExpr, Header, RelValue, RelValueRef, RowCount};
 use spacetimedb_sats::product_value::ProductValue;
 use std::collections::HashMap;
@@ -92,7 +92,7 @@ pub trait RelOps {
     where
         Self: Sized,
         Pred: FnMut(RelValueRef, RelValueRef) -> Result<bool, ErrorVm>,
-        Proj: FnMut(RelValue, RelValue) -> RelValue,
+        Proj: FnMut(RelValue, RelValue) -> Result<RelValue, ErrorVm>,
         KeyLhs: FnMut(RelValueRef) -> Result<ProductValue, ErrorVm>,
         KeyRhs: FnMut(RelValueRef) -> Result<ProductValue, ErrorVm>,
         Rhs: RelOps,
@@ -267,7 +267,7 @@ where
     KeyLhs: FnMut(RelValueRef) -> Result<ProductValue, ErrorVm>,
     KeyRhs: FnMut(RelValueRef) -> Result<ProductValue, ErrorVm>,
     Pred: FnMut(RelValueRef, RelValueRef) -> Result<bool, ErrorVm>,
-    Proj: FnMut(RelValue, RelValue) -> RelValue,
+    Proj: FnMut(RelValue, RelValue) -> Result<RelValue, ErrorVm>,
 {
     fn head(&self) -> &Header {
         &self.head
@@ -306,7 +306,7 @@ where
                 if let Some(rhs) = rvv.pop() {
                     if (self.predicate)(lhs.as_val_ref(), rhs.as_val_ref())? {
                         self.count.add_exact(1);
-                        return Ok(Some((self.projection)(lhs, rhs)));
+                        return Ok(Some((self.projection)(lhs, rhs)?));
                     }
                 }
             }
