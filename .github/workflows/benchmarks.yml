@@ -2,7 +2,6 @@ on:
   push:
     branches:
       - master
-      - kazimuth/bench-pretty
   workflow_dispatch:
     inputs:
       pr_number:
@@ -54,7 +53,7 @@ jobs:
             let body = `Test comment: clippy.toml contents: '${stuff}'`;
 
             try {
-              const { data: comment } = await github.issues.createComment({
+              const { data: comment } = await github.rest.issues.createComment({
                 owner: context.issue.owner,
                 repo: context.issue.repo,
                 issue_number: context.issue.number,
