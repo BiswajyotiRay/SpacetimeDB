@@ -2,7 +2,7 @@ on:
   push:
     branches:
       - master
-      - kazimuth/benchwrangle
+      - kazimuth/bench-pretty
   workflow_dispatch:
     inputs:
       pr_number:
@@ -40,6 +40,37 @@ jobs:
           PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr_number }} --jq '{ baseRefName: .base.ref, headRefName: .head.ref }')
           echo "PR_BASE_REF=$(echo $PR_DATA | jq -r '.baseRefName')" >> $GITHUB_ENV
           echo "PR_HEAD_REF=$(echo $PR_DATA | jq -r '.headRefName')" >> $GITHUB_ENV
+
+      # https://stackoverflow.com/questions/58066966/commenting-a-pull-request-in-a-github-action
+      # https://github.com/boa-dev/criterion-compare-action/blob/main/main.js
+      - name: test comment
+        if: ${{ env.PR_BASE_REF }}
+        uses: actions/github-script@v6  
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            let stuff = require('fs').readFileSync('crates/bench/clippy.toml', 'utf8');
+            let body = `Test comment: clippy.toml contents: '${stuff}'`;
+
+            try {
+              const { data: comment } = await github.issues.createComment({
+                owner: context.issue.owner,
+                repo: context.issue.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+              core.info(
+                `Created comment id '${comment.id}' on issue '${contextObj.number}' in '${contextObj.repo}'.`
+              );
+              core.setOutput("comment-id", comment.id);
+            } catch (err) {
+              core.warning(`Failed to comment: ${err}`);
+              core.info("Commenting is not possible from forks.");
+              core.info("Logging here instead.");
+              console.log(body);
+            }
+
+
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -68,19 +99,42 @@ jobs:
         run: |
           rustup component add clippy
 
-      - name: Criterion compare base branch
-        if: ${{ env.PR_BASE_REF }}
-        uses: clockworklabs/criterion-compare-action@main
-        with:
-          cwd: "crates/bench"
-          branchName: ${{ env.PR_BASE_REF }}
+      - name: Master; run bench
+        if: github.ref == 'ref/head/master'
+        working-directory: crates/bench/
+        run: |
+          echo "Running benchmarks with sqlite"
+          cargo bench -- --save-baseline master
+          cargo run --bin summarize pack master
 
-      - name: Criterion compare previous commit
-        if: env.PR_BASE_REF == ''
-        uses: clockworklabs/criterion-compare-action@main
+      # https://docs.github.com/en/actions/using-workflows/storing-workflow-data-as-artifacts
+      - name: Master; upload packed bench results
+        if: github.ref == 'ref/head/master'
+        uses: actions/upload-artifact@v3
         with:
-          cwd: "crates/bench"
-          branchName: "HEAD~1"
+          name: master_packed_bench_json-${{ github.sha }}
+          path: target/criterion/master.json
+      
+      - name: PR; download bench results for compare
+        if: ${{ env.PR_BASE_REF }}
+        uses: actions/download-artifact@v3
+        with:
+          name: master_packed_bench_json-${{ env.PR_BASE_REF }}
+          path: target/criterion/master.json
+
+      - name: PR; run bench
+        if: ${{ env.PR_BASE_REF }}
+        working-directory: crates/bench/
+        run: |
+          echo "Running benchmarks without sqlite"
+          cargo bench -- --save-baseline branch '(special|stdb_module|stdb_raw)'
+          cargo run --bin summarize pack branch
+
+      - name: PR; compare benchmarks
+        if: ${{ env.PR_BASE_REF }}
+        working-directory: crates/bench/
+        run: |
+          cargo run --bin summarize markdown-report master.json branch.json --report-name report
 
       - name: Clean up
         if: always()
