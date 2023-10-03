@@ -134,7 +134,11 @@ jobs:
         if: ${{ env.PR_BASE_REF }}
         working-directory: crates/bench/
         run: |
-          cargo run --bin summarize markdown-report master.json branch.json --report-name report
+          if [ -e target/criterion/master.json ]; then
+            cargo run --bin summarize markdown-report branch.json master.json --report-name report
+          else
+            cargo run --bin summarize markdown-report branch.json --report-name report
+          fi
 
       - name: Clean up
         if: always()
