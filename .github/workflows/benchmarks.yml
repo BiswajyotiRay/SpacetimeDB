@@ -2,6 +2,8 @@ on:
   push:
     branches:
       - master
+  pull_request: # opened, synchronized (pushed), or reopened
+  
   workflow_dispatch:
     inputs:
       pr_number:
@@ -51,16 +53,14 @@ jobs:
           script: |
             let stuff = require('fs').readFileSync('crates/bench/clippy.toml', 'utf8');
             let body = `Test comment: clippy.toml contents: '${stuff}'`;
-
-            core.info("context: issue owner: "+context.issue.owner)
-            core.info("context: issue repo: "+context.issue.owner)
-            core.info("context: issue number: "+context.issue.number)
+            let number = parseInt(process.env.PR_NUMBER);
+            core.info("context: issue number: "+number)
 
             try {
               const { data: comment } = await github.rest.issues.createComment({
-                owner: context.issue.owner,
-                repo: context.issue.repo,
-                issue_number: context.issue.number,
+                owner: "clockworklabs",
+                repo: "SpacetimeDB",
+                issue_number: number,
                 body: body,
               });
               core.info(
@@ -73,7 +73,6 @@ jobs:
               core.info("Logging here instead.");
               console.log(body);
             }
-
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
@@ -119,12 +118,19 @@ jobs:
           name: master_packed_bench_json-${{ github.sha }}
           path: target/criterion/master.json
       
-      - name: PR; download bench results for compare
-        if: ${{ env.PR_BASE_REF }}
-        uses: actions/download-artifact@v3
-        with:
-          name: master_packed_bench_json-${{ env.PR_BASE_REF }}
-          path: target/criterion/master.json
+      # TODO: can we optionally download if it only might fail?
+      #- name: PR; download bench results for compare
+      #  if: ${{ env.PR_BASE_REF }}
+      #  uses: actions/github-script@v6  
+      #  with:
+      #    github-token: ${{secrets.GITHUB_TOKEN}}
+      #    script: |
+      #      try {
+      #        let artifact = github.rest.actions.getArtifact({
+      #          owner: "clockwork",
+      #          repo: context.
+      #        })
+      #      }
 
       - name: PR; run bench
         if: ${{ env.PR_BASE_REF }}
@@ -143,6 +149,38 @@ jobs:
           else
             cargo run --bin summarize markdown-report branch.json --report-name report
           fi
+
+      # https://stackoverflow.com/questions/58066966/commenting-a-pull-request-in-a-github-action
+      # https://github.com/boa-dev/criterion-compare-action/blob/main/main.js
+      - name: test comment
+        if: ${{ env.PR_BASE_REF }}
+        uses: actions/github-script@v6  
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            let stuff = require('fs').readFileSync('target/criterion/report.md', 'utf8');
+            let body = `<details><summary>Benchmark results</summary>\n\n{stuff}\n\n</details>`;
+            let number = parseInt(process.env.PR_NUMBER);
+            core.info("context: issue number: "+number)
+
+            try {
+              const { data: comment } = await github.rest.issues.createComment({
+                owner: "clockworklabs",
+                repo: "SpacetimeDB",
+                issue_number: number,
+                body: body,
+              });
+              core.info(
+                `Created comment id '${comment.id}' on issue '${contextObj.number}' in '${contextObj.repo}'.`
+              );
+              core.setOutput("comment-id", comment.id);
+            } catch (err) {
+              core.warning(`Failed to comment: ${err}`);
+              core.info("Commenting is not possible from forks.");
+              core.info("Logging here instead.");
+              console.log(body);
+            }
+
 
       - name: Clean up
         if: always()
