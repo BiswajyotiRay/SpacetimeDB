@@ -10,6 +10,10 @@ on:
         required: false
         default: ''
 
+  # note: the "benchmarks please" comments aren't dispatched here,
+  # there's a script running on one of our internal servers that reads those and then
+  # dispatches to this workflow using the workflow_dispatch there.
+
 name: Benchmarks
 
 env:
@@ -137,7 +141,6 @@ jobs:
           echo "Running benchmarks without sqlite"
           # have to pass explicit names, otherwise it will try to run the tests and fail for some reason...
           cargo bench --bench generic --bench special -- --save-baseline branch '(special|stdb_module|stdb_raw)'
-          cargo bench -- --save-baseline branch '(special|stdb_module|stdb_raw)'
           cargo run --bin summarize pack branch
 
       - name: PR; compare benchmarks
