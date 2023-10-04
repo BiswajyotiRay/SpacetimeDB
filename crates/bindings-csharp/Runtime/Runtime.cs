@@ -206,11 +206,11 @@ public static class Runtime
                 // We need to set type info to inlined identity type as `generate` CLI currently can't recognise type references for built-ins.
                 new SpacetimeDB.SATS.ProductType
                 {
-                    { "__identity_bytes", SpacetimeDB.SATS.BuiltinType.BytesTypeInfo.AlgebraicType }
+                    { "__identity_bytes", SpacetimeDB.SATS.AlgebraicType.BytesTypeInfo.AlgebraicType }
                 },
-                reader => new(SpacetimeDB.SATS.BuiltinType.BytesTypeInfo.Read(reader)),
+                reader => new(SpacetimeDB.SATS.AlgebraicType.BytesTypeInfo.Read(reader)),
                 (writer, value) =>
-                    SpacetimeDB.SATS.BuiltinType.BytesTypeInfo.Write(writer, value.bytes)
+                    SpacetimeDB.SATS.AlgebraicType.BytesTypeInfo.Write(writer, value.bytes)
             );
 
         public static SpacetimeDB.SATS.TypeInfo<Identity> GetSatsTypeInfo() => satsTypeInfo;
